@@ -1,5 +1,5 @@
 /*
- * 独立扫码登录模块
+ * 独立扫码登录模块 (修复 UIN 刷新机制与 WAF 拦截)
  * 负责获取微信二维码、轮询扫码状态，并生成账户凭证到 accounts/ 目录
  */
 
@@ -16,22 +16,20 @@ if (!fs.existsSync(ACCOUNT_DIR)) {
     fs.mkdirSync(ACCOUNT_DIR, { recursive: true });
 }
 
-// 🌟 补回微信官方必须的安全检验 Header（伪装成合法的 iPad 客户端环境）
-function randomWechatUin() {
-    const uint32 = crypto.randomBytes(4).readUInt32BE(0);
-    return Buffer.from(String(uint32), "utf-8").toString("base64");
-}
+// 🌟 核心修复 1：UIN 必须全局唯一！整个登录会话期间绝不能改变，否则会触发微信服务器风控导致二维码失效。
+const GLOBAL_UIN = Buffer.from(String(crypto.randomBytes(4).readUInt32BE(0)), "utf-8").toString("base64");
 
 function getHeaders() {
     return {
         'Content-Type': 'application/json',
-        'X-WECHAT-UIN': randomWechatUin(),
+        'X-WECHAT-UIN': GLOBAL_UIN,
         'iLink-App-Id': 'bot',
-        'iLink-App-ClientVersion': '131335'
+        'iLink-App-ClientVersion': '131335',
+        // 🌟 核心修复 2：补充标准 UA，防止被腾讯云 WAF 当作恶意爬虫拦截
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     };
 }
 
-// 🌟 请求时带上 Headers
 async function fetchQRCode() {
     const url = `${FIXED_BASE_URL}/ilink/bot/get_bot_qrcode?bot_type=${BOT_TYPE}`;
     const res = await fetch(url, { method: 'GET', headers: getHeaders() });
@@ -39,7 +37,6 @@ async function fetchQRCode() {
     return await res.json();
 }
 
-// 🌟 轮询时也带上 Headers
 async function pollQRStatus(qrcode, currentBaseUrl) {
     const url = `${currentBaseUrl}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`;
     const res = await fetch(url, { method: 'GET', headers: getHeaders() });
@@ -65,6 +62,7 @@ async function startLogin() {
 
     let currentBaseUrl = FIXED_BASE_URL;
     let scanned = false;
+    let timeoutCount = 0;
 
     while (true) {
         try {
@@ -96,19 +94,23 @@ async function startLogin() {
                 const syncConfPath = path.join(ACCOUNT_DIR, `${accountId}-im-bot.sync.json`);
                 const ctxConfPath = path.join(ACCOUNT_DIR, `${accountId}-im-bot.context-tokens.json`);
 
-                // 🌟 直接写入 bot.js 所需的三大配置文件！
+                // 写入凭证
                 fs.writeFileSync(mainConfPath, JSON.stringify({ token, baseUrl, userId }, null, 2));
                 if (!fs.existsSync(syncConfPath)) fs.writeFileSync(syncConfPath, JSON.stringify({}));
                 if (!fs.existsSync(ctxConfPath)) fs.writeFileSync(ctxConfPath, JSON.stringify({}));
 
                 console.log(`🎉 账号凭证已安全保存至: accounts/${accountId}-im-bot.json`);
-                console.log(`\n🚀 万事俱备！现在你可以执行 pm2 start bot.js 启动自推大军了！`);
                 break;
             }
         } catch (e) {
-            // 网络波动超时，静默继续轮询
+            timeoutCount++;
+            if (timeoutCount > 20) {
+                console.log("\n❌ 连续网络超时，请检查网络或重新运行脚本。");
+                break;
+            }
         }
-        await new Promise(r => setTimeout(r, 1500));
+        // 降低轮询频率到 2 秒，进一步降低风控概率
+        await new Promise(r => setTimeout(r, 2000));
     }
 }
 
