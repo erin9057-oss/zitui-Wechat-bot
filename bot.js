@@ -47,11 +47,11 @@ const MY_USER_ID = wxConfig.userId;
 // 🌟 核心：从统一的 config.json 动态读取所有核心鉴权与路由
 const CONFIG_PATH = path.join(BASE_DIR, 'config.json');
 const extConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-const AI_API_URL = `${extConfig.chat_llm.api_base_url}/chat/completions`; 
+// 🌟 修复 1：防死锁，过滤掉 api_base_url 末尾多余的斜杠，防止 //chat/completions 导致网关 404 或挂死
+const AI_API_URL = `${extConfig.chat_llm.api_base_url.replace(/\/$/, '')}/chat/completions`; 
 const AI_API_KEY = extConfig.chat_llm.api_key;
 const AI_MODEL = extConfig.chat_llm.model_name;
 
-// 🌟 进阶：依然保留从 API.json 读取高级控制参数 (Temperature, Top_K, 安全阈值等)
 const API_CONF_PATH = path.join(WORKSPACE_DIR, 'API.json');
 let AI_PARAMS = {};
 if (fs.existsSync(API_CONF_PATH)) {
@@ -59,7 +59,6 @@ if (fs.existsSync(API_CONF_PATH)) {
     AI_PARAMS = aiConfig.agents?.defaults?.params || {};
 }
 
-// 🌟 1. 加载所有静态基础 MD 文件
 const mdFiles = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md'];
 let SYSTEM_PROMPT = "";
 for (const file of mdFiles) {
@@ -69,8 +68,7 @@ for (const file of mdFiles) {
     }
 }
 
-// 🌟 2. 动态能力注入引擎 (纯净解耦版)
-// 检测 config.json 中的配置状态，判断是否激活附加能力
+// 🌟 2. 动态能力注入引擎
 const hasMiio = extConfig.miio?.ip && !extConfig.miio.ip.includes("YOUR_") && extConfig.miio?.token && !extConfig.miio.token.includes("YOUR_");
 const hasImage = extConfig.image_generation?.api_key && !extConfig.image_generation.api_key.includes("YOUR_");
 const hasVoice = extConfig.tts?.credentials?.some(c => c.appid && !c.appid.includes("YOUR_"));
@@ -79,7 +77,6 @@ let ruleIndex = 8;
 let dynamicRules = "";
 
 try {
-    // 按需读取外置的 Prompt MD 文件并自动分配规则序号
     if (hasMiio) {
         const miioContent = fs.readFileSync(path.join(WORKSPACE_DIR, 'MIIO.md'), 'utf-8');
         dynamicRules += `\n## ${ruleIndex++}. Physical Reality Control\n${miioContent}\n`;
@@ -92,18 +89,11 @@ try {
         const voiceContent = fs.readFileSync(path.join(WORKSPACE_DIR, 'VOICE.md'), 'utf-8');
         dynamicRules += `\n## ${ruleIndex++}. Voice Messages\n${voiceContent}\n`;
     }
-    
-    // 强制输出格式作为最终兜底规则
     if (fs.existsSync(path.join(WORKSPACE_DIR, 'FORMAT.md'))) {
         const formatContent = fs.readFileSync(path.join(WORKSPACE_DIR, 'FORMAT.md'), 'utf-8');
         dynamicRules += `\n## ${ruleIndex}. Mandatory Output Format\n${formatContent}\n`;
     }
-    
-    // 合并进系统 Prompt
-    if (dynamicRules) {
-        SYSTEM_PROMPT += `\n\n=== DYNAMIC_CAPABILITIES ===\n` + dynamicRules;
-    }
-
+    if (dynamicRules) SYSTEM_PROMPT += `\n\n=== DYNAMIC_CAPABILITIES ===\n` + dynamicRules;
 } catch (err) {
     console.error("❌ 读取动态能力 Prompt 失败！", err.message);
 }
@@ -198,6 +188,7 @@ async function callAI(userId, textContent, mediaPaths = []) {
             const ext = path.extname(mediaPath).toLowerCase();
             const b64 = fs.readFileSync(mediaPath).toString('base64');
             
+            // MIME 走私！将音频装进 image_url 标签
             if (ext === '.wav' || ext === '.mp3' || ext === '.m4a' || ext === '.amr') {
                 let mimeType = 'audio/wav';
                 if (ext === '.mp3') mimeType = 'audio/mp3';
@@ -228,21 +219,30 @@ async function callAI(userId, textContent, mediaPaths = []) {
     if (chatMemory[userId].length > 15) chatMemory[userId].splice(1, 2); 
 
     try {
-        console.log(`\n🧠 AI 正在动用多模态感官处理信息...`);
+        console.log(`\n🧠 AI 正在动用多模态感官处理信息 (模型: ${AI_MODEL})...`);
+        
+        // 🌟 修复 2：为原生的 fetch 加上强制超时！防止代理网关因 MIME 走私懵逼而永久挂死进程！
         const response = await fetch(AI_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AI_API_KEY}` },
-            body: JSON.stringify({ model: AI_MODEL, messages: chatMemory[userId], ...AI_PARAMS })
+            body: JSON.stringify({ model: AI_MODEL, messages: chatMemory[userId], ...AI_PARAMS }),
+            signal: AbortSignal.timeout(120000) // 120秒极限超时
         });
 
-        if (!response.ok) throw new Error(`API 报错: ${response.status}`);
+        // 🌟 修复 3：如果代理报错，把尸体（Text Body）抛出来，不能光抛个空洞的 status code
+        if (!response.ok) {
+            const errText = await response.text().catch(() => "无返回体");
+            throw new Error(`HTTP ${response.status} | 代理网关报错信息: ${errText}`);
+        }
+        
         const data = await response.json();
         const rawReply = data.choices[0].message.content.trim();
         
         chatMemory[userId].push({ role: "assistant", content: rawReply });
         return rawReply;
     } catch (err) {
-        console.error("❌ AI 请求失败:", err.message);
+        // 抓取并打印真实死因
+        console.error(`\n❌ AI 请求失败:`, err.name === 'TimeoutError' ? '请求严重超时！(代理网关可能卡死了)' : err.message);
         chatMemory[userId].pop(); 
         return null;
     }
@@ -294,7 +294,7 @@ async function startBot() {
         } catch (e) {}
     }
 
-    console.log("🚀 独立网关 (按需动态能力版) 已启动...");
+    console.log("🚀 独立网关 (大道至简版) 已启动...");
 
     while (true) {
         try {
