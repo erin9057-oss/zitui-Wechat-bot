@@ -120,33 +120,48 @@ EOF
 # 6. 首次扫码登录与启动
 echo "==================================================="
 echo -e "\n📱 [6/6] 准备就绪！即将获取微信登录二维码..."
-echo "⚠️ 请准备好手机微信。扫码并确认登录后，系统将自动启动所有服务。"
+echo "⚠️ 请准备好手机微信。如暂不方便扫码，可直接按回车跳过此步骤。"
 echo "==================================================="
-sleep 3
+sleep 2
 
-# 执行扫码脚本 (该脚本会阻塞直到扫码成功或失败)
+# 执行扫码脚本 (支持回车跳过)
 node login.js
 
-# 检查是否成功生成了凭证
-if ls accounts/*-im-bot.json 1> /dev/null 2>&1; then
-    echo -e "\n✅ 检测到登录凭证，正在通过 PM2 启动后台引擎..."
-    pm2 start bot.js --name "wechat-bot"
-    pm2 start voice-server.js --name "voice-engine"
-    pm2 start image-server.js --name "image-engine"
-    pm2 save
-    
-    echo "==================================================="
-    echo "🎉 自推 Wechat Bot 安装、配置及启动圆满完成！"
-    echo "==================================================="
-    echo "💡 提示 1：服务已在后台静默运行。你可以输入 'pm2 logs' 查看运行日志。"
-    echo "💡 提示 2：如果未来需要添加多个 TTS 节点，请手动编辑 config.json (最多支持10个API轮询)。"
-    echo "💡 提示 3：若要开机自启，建议在 ~/.bashrc 或 ~/.zshrc 末尾添加 'pm2 resurrect'。"
-    echo "==================================================="
+# 🌟 无论是否扫码，强制配置 PM2 守护进程
+echo -e "\n✅ 正在通过 PM2 启动并注册后台引擎..."
+
+APP_DIR="$HOME/WechatAI/openclaw-weixin"
+
+# 使用绝对路径启动进程
+pm2 start "$APP_DIR/bot.js" --name "wechat-bot"
+pm2 start "$APP_DIR/voice-server.js" --name "voice-engine"
+pm2 start "$APP_DIR/image-server.js" --name "image-engine"
+
+# 保存当前完美的进程快照
+pm2 save
+
+# 🌟 将使用绝对路径的启动命令强行注入 .bashrc，双重自启保险
+BASHRC_FILE="$HOME/.bashrc"
+if ! grep -q "wechat-bot" "$BASHRC_FILE"; then
+    echo -e "\n# 自推 Wechat Bot 开机自启" >> "$BASHRC_FILE"
+    echo "pm2 start $APP_DIR/bot.js --name \"wechat-bot\" 2>/dev/null || true" >> "$BASHRC_FILE"
+    echo "pm2 start $APP_DIR/voice-server.js --name \"voice-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
+    echo "pm2 start $APP_DIR/image-server.js --name \"image-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
+    echo "配置开机自启完成: 已注入绝对路径启动命令至 ~/.bashrc"
 else
-    echo "==================================================="
-    echo "❌ 未检测到登录凭证。可能是二维码过期或扫码中断。"
-    echo "请随时在目录 (~/WechatAI/openclaw-weixin) 下手动执行 'node login.js' 重新扫码。"
-    echo "扫码成功后，执行以下命令启动服务："
-    echo "pm2 start bot.js && pm2 start voice-server.js && pm2 start image-server.js"
-    echo "==================================================="
+    echo "配置开机自启完成: 检测到 ~/.bashrc 中已有相关配置"
 fi
+
+echo "==================================================="
+echo "🎉 自推 Wechat Bot 安装、配置及后台注册圆满完成！"
+echo "==================================================="
+if ls accounts/*-im-bot.json 1> /dev/null 2>&1; then
+    echo "✅ 已检测到登录凭证，机器人已上线就绪！"
+else
+    echo "⚠️ 您刚才跳过了扫码环节，目前机器人尚无登录凭证。"
+    echo "👉 请在准备好手机时，进入目录 ($APP_DIR) 手动执行 'node login.js' 扫码。"
+    echo "扫码完成后机器人将自动接管消息，无需重启。"
+fi
+echo "💡 提示 1：服务已在后台静默运行。你可以输入 'pm2 logs' 查看运行日志。"
+echo "💡 提示 2：如果未来需要添加多个 TTS 节点，请手动编辑 config.json。"
+echo "==================================================="
