@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import qrcodeTerminal from 'qrcode-terminal';
+import readline from 'readline';
 
 const FIXED_BASE_URL = "https://ilinkai.weixin.qq.com";
 const BOT_TYPE = "3"; 
@@ -51,20 +52,35 @@ async function startLogin() {
         qrData = await fetchQRCode();
     } catch (e) {
         console.error("❌ 获取二维码失败:", e.message);
-        return;
+        process.exit(1);
     }
 
     console.log("\n===================================================");
     console.log("📱 请用微信扫描下方二维码登录：\n");
     qrcodeTerminal.generate(qrData.qrcode_img_content, { small: true });
     console.log(`\n💡 如果二维码显示错乱，请复制此链接到浏览器中打开扫码：\n${qrData.qrcode_img_content}`);
+    console.log("===================================================");
+    console.log("💡 【重要提示】：如果现在不方便扫码，可以按下回车键 (Enter) 跳过扫码，继续跑完安装流程。");
     console.log("===================================================\n");
 
     let currentBaseUrl = FIXED_BASE_URL;
     let scanned = false;
     let timeoutCount = 0;
+    let isCancelled = false;
 
-    while (true) {
+    // 🌟 新增：监听控制台输入，允许用户随时按下回车跳过
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    rl.on('line', () => {
+        console.log("\n\n⏭️ 检测到回车输入，正在取消扫码并进入下一步...");
+        isCancelled = true;
+        rl.close();
+    });
+
+    while (!isCancelled) {
         try {
             const status = await pollQRStatus(qrData.qrcode, currentBaseUrl);
             
@@ -80,7 +96,7 @@ async function startLogin() {
                     currentBaseUrl = `https://${status.redirect_host}`;
                 }
             } else if (status.status === "expired") {
-                console.log("\n❌ 二维码已过期，请重新运行 node login.js 刷新。");
+                console.log("\n❌ 二维码已过期。");
                 break;
             } else if (status.status === "confirmed") {
                 console.log("\n✅ 登录验证成功！正在生成凭证文件...");
@@ -105,13 +121,17 @@ async function startLogin() {
         } catch (e) {
             timeoutCount++;
             if (timeoutCount > 20) {
-                console.log("\n❌ 连续网络超时，请检查网络或重新运行脚本。");
+                console.log("\n❌ 连续网络超时，跳过扫码。");
                 break;
             }
         }
         // 降低轮询频率到 2 秒，进一步降低风控概率
         await new Promise(r => setTimeout(r, 2000));
     }
+
+    rl.close();
+    // 扫码完成或跳过后，始终以正常状态退出，不要阻断 install.sh 的执行
+    process.exit(0);
 }
 
 startLogin();
