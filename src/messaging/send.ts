@@ -19,10 +19,8 @@ import { uploadFileToWeixin, uploadVideoToWeixin, downloadRemoteImageToTemp } fr
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import crypto from "node:crypto";
 import { exec } from "node:child_process";
 
-// 动态读取 config.json
 const BASE_DIR = '/data/data/com.termux/files/home/WechatAI/openclaw-weixin';
 const CONFIG_PATH = path.join(BASE_DIR, 'config.json');
 let extConfig: any = {};
@@ -30,9 +28,7 @@ try {
   if (fs.existsSync(CONFIG_PATH)) {
     extConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
   }
-} catch (e) {
-  console.error("加载 config.json 失败", e);
-}
+} catch (e) {}
 
 function generateClientId(): string { return generateId("openclaw-weixin"); }
 
@@ -58,23 +54,18 @@ export async function sendMessageWeixin(params: {
 }): Promise<{ messageId: string }> {
   const { to, text: rawText, opts } = params;
 
-  // 🌟 1. 物理开灯防乱调机制：检查是否为合法配置
   if (rawText.includes('[物理:开灯]') || rawText.includes('<开灯>')) {
       const ip = extConfig?.miio?.ip;
       const token = extConfig?.miio?.token;
       if (ip && !ip.includes('YOUR_') && token && !token.includes('YOUR_')) {
-          exec(`python3 /data/data/com.termux/files/usr/bin/miiocli yeelight --ip ${ip} --token ${token} on`, (err) => {
-              if (err) console.error("Miio 开灯执行失败:", err.message);
-          });
+          exec(`python3 /data/data/com.termux/files/usr/bin/miiocli yeelight --ip ${ip} --token ${token} on`);
       }
   }
   if (rawText.includes('[物理:关灯]') || rawText.includes('<关灯>')) {
       const ip = extConfig?.miio?.ip;
       const token = extConfig?.miio?.token;
       if (ip && !ip.includes('YOUR_') && token && !token.includes('YOUR_')) {
-          exec(`python3 /data/data/com.termux/files/usr/bin/miiocli yeelight --ip ${ip} --token ${token} off`, (err) => {
-              if (err) console.error("Miio 关灯执行失败:", err.message);
-          });
+          exec(`python3 /data/data/com.termux/files/usr/bin/miiocli yeelight --ip ${ip} --token ${token} off`);
       }
   }
 
@@ -86,7 +77,6 @@ export async function sendMessageWeixin(params: {
       replyContent = replyContent.replace(/<(thought|think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, "");
   }
 
-  // 🌟 2. 强力防吞字机制：强制标签换行，保证文字不被顺带跳过
   replyContent = replyContent.replace(/(<pic[\s\S]*?<\/pic>)/gi, '\n$1\n');
   replyContent = replyContent.replace(/(<pic prompt[\s\S]*?<\/pic prompt>)/gi, '\n$1\n');
   replyContent = replyContent.replace(/(<voice>[\s\S]*?<\/voice>)/gi, '\n$1\n');
@@ -99,11 +89,9 @@ export async function sendMessageWeixin(params: {
   for (let i = 0; i < chunks.length; i++) {
       let chunk = chunks[i];
 
-      // 滤除无关标签
       chunk = chunk.replace(/\[物理:开灯\]|\[物理:关灯\]|<开灯>|<关灯>|打开了床头灯|关上了床头灯/g, '').trim();
       if (!chunk) continue;
 
-      // 🖼️ 图像处理块
       const picMatch = chunk.match(/<pic type="(person|scene)">([\s\S]*?)<\/pic>/i) || chunk.match(/<pic prompt>([\s\S]*?)<\/pic prompt>/i);
       if (picMatch) {
           const imgType = picMatch[1]?.toLowerCase() === 'scene' ? 'scene' : 'person';
@@ -113,8 +101,10 @@ export async function sendMessageWeixin(params: {
               const imgRes = await fetch(imageApiUrl, {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ prompt: imgPrompt, type: imgType }),
-                  signal: AbortSignal.timeout(45000) // 🌟 图像 45 秒防卡死
+                  signal: AbortSignal.timeout(45000) 
               });
+              if (!imgRes.ok) throw new Error(await imgRes.text());
+              
               const imgData = await imgRes.json() as any;
               if (imgData.success && imgData.data[0].b64_json) {
                   const tmpPath = path.join(os.tmpdir(), `gen_${Date.now()}.png`);
@@ -123,13 +113,10 @@ export async function sendMessageWeixin(params: {
                   const res = await sendImageMessageWeixin({ to, text: "", uploaded, opts });
                   lastId = res.messageId;
               }
-          } catch (err) {
-              console.error(`❌ 生图请求跳过 (未配置或服务离线): ${String(err)}`);
-          }
+          } catch (err) {}
           continue; 
       }
 
-      // 🎙️ 语音处理块 (带防呆降级机制)
       const voiceMatch = chunk.match(/<voice>([\s\S]*?)<\/voice>/i);
       if (voiceMatch) {
           const speakText = voiceMatch[1].trim();
@@ -140,8 +127,10 @@ export async function sendMessageWeixin(params: {
               const voiceRes = await fetch(voiceApiUrl, {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ text: speakText }),
-                  signal: AbortSignal.timeout(30000) // 🌟 语音 30 秒防卡死
+                  signal: AbortSignal.timeout(30000) 
               });
+              if (!voiceRes.ok) throw new Error(await voiceRes.text());
+              
               const voiceData = await voiceRes.json() as any;
               if (voiceData.success && voiceData.data.b64_mp4) {
                   const mp4Buf = Buffer.from(voiceData.data.b64_mp4, 'base64');
@@ -159,14 +148,12 @@ export async function sendMessageWeixin(params: {
                   lastId = res.messageId;
                   voiceSuccess = true;
               }
-          } catch (err) { 
-              console.error(`❌ 语音生成失败或未配置服务，自动触发文本降级发送: ${String(err)}`); 
-          }
+          } catch (err) {}
 
-          // 🌟 3. 优雅降级：如果语音模块崩了或没启动，提取台词作为普通文字发送
           if (!voiceSuccess && speakText) {
               const clientId = generateClientId();
               const req = buildSendMessageReq({ to, contextToken: opts.contextToken, payload: { text: speakText }, clientId });
+              console.log(`\n💬 [发往微信的纯文本] -> \n${speakText}`);
               await sendMessageApi({ baseUrl: opts.baseUrl, token: opts.token, body: req });
               lastId = clientId;
               await new Promise(r => setTimeout(r, 1000));
@@ -174,7 +161,6 @@ export async function sendMessageWeixin(params: {
           continue; 
       }
 
-      // 🌐 兜底 URL 图像处理块
       if (/^https?:\/\//.test(chunk)) {
           try {
               const filePath = await downloadRemoteImageToTemp(chunk, os.tmpdir());
@@ -185,7 +171,6 @@ export async function sendMessageWeixin(params: {
           continue;
       }
 
-      // 💬 纯文本处理块
       const f = new StreamingMarkdownFilter();
       let cleanText = f.feed(chunk) + f.flush(); 
       cleanText = cleanText.trim();
@@ -193,6 +178,9 @@ export async function sendMessageWeixin(params: {
       if (cleanText) {
           const clientId = generateClientId();
           const req = buildSendMessageReq({ to, contextToken: opts.contextToken, payload: { text: cleanText }, clientId });
+          
+          console.log(`\n💬 [发往微信的纯文本] -> \n${cleanText}`);
+          
           await sendMessageApi({ baseUrl: opts.baseUrl, token: opts.token, body: req });
           lastId = clientId;
           await new Promise(r => setTimeout(r, 1500 + (cleanText.length * 50) + (Math.random() * 500)));
@@ -217,6 +205,15 @@ async function sendMediaItems(params: {
         item_list: [item], context_token: opts.contextToken ?? undefined,
       },
     };
+
+    const logItem = JSON.parse(JSON.stringify(item));
+    ['image_item', 'voice_item', 'video_item', 'file_item'].forEach(key => {
+        if (logItem[key]?.media?.encrypt_query_param) {
+            logItem[key].media.encrypt_query_param = "[已隐藏 CDN 超长密文参数]";
+        }
+    });
+    console.log(`\n📤 [发往微信的多媒体包裹] ->\n${JSON.stringify(logItem, null, 2)}`);
+
     try {
       await sendMessageApi({ baseUrl: opts.baseUrl, token: opts.token, body: req });
     } catch (err) {}
