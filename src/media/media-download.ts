@@ -1,9 +1,19 @@
 export interface WeixinInboundMediaOpts {
-  cdnBaseUrl: string;
-  saveMedia: (buffer: Buffer, mime: string, subdir: string, maxSize?: number, filename?: string) => Promise<{ path: string }>;
-  log: (msg: string) => void;
-  errLog: (msg: string) => void;
+  cdnBaseUrl?: string;
+  saveMedia?: any;
+  log?: any;
+  errLog?: any;
   label?: string;
+  
+  // 运行时的返回参数
+  decryptedPicPath?: string;
+  decryptedVoicePath?: string;
+  voiceMediaType?: string;
+  decryptedFilePath?: string;
+  fileMediaType?: string;
+  decryptedVideoPath?: string;
+  filePath?: string;
+  path?: string;
 }
 
 import { logger } from "../util/logger.js";
