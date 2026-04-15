@@ -5,6 +5,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import qrcodeTerminal from 'qrcode-terminal';
 
 const FIXED_BASE_URL = "https://ilinkai.weixin.qq.com";
@@ -15,16 +16,33 @@ if (!fs.existsSync(ACCOUNT_DIR)) {
     fs.mkdirSync(ACCOUNT_DIR, { recursive: true });
 }
 
+// 🌟 补回微信官方必须的安全检验 Header（伪装成合法的 iPad 客户端环境）
+function randomWechatUin() {
+    const uint32 = crypto.randomBytes(4).readUInt32BE(0);
+    return Buffer.from(String(uint32), "utf-8").toString("base64");
+}
+
+function getHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'X-WECHAT-UIN': randomWechatUin(),
+        'iLink-App-Id': 'bot',
+        'iLink-App-ClientVersion': '131335'
+    };
+}
+
+// 🌟 请求时带上 Headers
 async function fetchQRCode() {
     const url = `${FIXED_BASE_URL}/ilink/bot/get_bot_qrcode?bot_type=${BOT_TYPE}`;
-    const res = await fetch(url, { method: 'GET' });
+    const res = await fetch(url, { method: 'GET', headers: getHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
 }
 
+// 🌟 轮询时也带上 Headers
 async function pollQRStatus(qrcode, currentBaseUrl) {
     const url = `${currentBaseUrl}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`;
-    const res = await fetch(url, { method: 'GET' });
+    const res = await fetch(url, { method: 'GET', headers: getHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
 }
