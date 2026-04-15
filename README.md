@@ -1,312 +1,57 @@
-# WeChat
+# 🚀 Zitui Wechat Bot
 
-[简体中文](./README.zh_CN.md)
+**English** | [简体中文](./README.zh_CN.md)
 
-OpenClaw's WeChat channel plugin, supporting login authorization via QR code scanning.
+**Zitui Wechat Bot** is a multi-modal WeChat AI bot framework based on a standalone gateway architecture. 
+Originating from Tencent's open-source underlying communication protocols, this project has been heavily refactored to strip away bulky outer frameworks. It is designed specifically for immersive Role-Playing (RP) and ultimate personal AI assistants.
 
-## Compatibility
+## ✨ Key Features
 
-| Plugin Version | OpenClaw Version       | npm dist-tag | Status      |
-|---------------|------------------------|--------------|-------------|
-| 2.0.x         | >=2026.3.22            | `latest`     | Active      |
-| 1.0.x         | >=2026.1.0 <2026.3.22  | `legacy`     | Maintenance |
+- 🧠 **LLM Driven**: Seamlessly connects to any OpenAI-compatible LLM interface (Gemini / Claude / ChatGPT, etc.) with deep support for System Prompt hot-reloading.
+- 🎨 **AI Image Generation**: Deeply integrated with Gemini's multi-modal capabilities. Supports reference images for facial feature locking and automatically sends photos disguised as WeChat image bubbles.
+- 🎙️ **Visualized Voice Bubbles**: Connects to Volcengine (ByteDance) TTS nodes. Automatically uses FFmpeg to transcode audio into video bubbles with fake "duration watermarks", perfectly mimicking native WeChat voice messages.
+- 💡 **Physical Reality Control (IoT)**: Integrated with the Miio protocol. The AI can control your real-world smart home devices (like Yeelight) through invisible commands in the chat (e.g., `[物理:开灯]`).
+- 📦 **One-Click Deployment**: Comes with a highly automated, interactive installation script tailored for Termux and Linux. QR code login via terminal, eliminating tedious environment setups.
 
-> The plugin checks the host version at startup and will refuse to load if the
-> running OpenClaw version is outside the supported range.
+## 🚀 Quick Start
 
-## Prerequisites
+### 1. One-Click Installation
 
-[OpenClaw](https://docs.openclaw.ai/install) must be installed (the `openclaw` CLI needs to be available).
-
-Check your version: `openclaw --version`
-
-## Quick Install
+Whether you are using Android Termux or a Linux server, simply run the following command in your terminal:
 
 ```bash
-npx -y @tencent-weixin/openclaw-weixin-cli install
+bash <(curl -sSL [https://raw.githubusercontent.com/erin9057-oss/zitui-Wechat-bot/main/install.sh](https://raw.githubusercontent.com/erin9057-oss/zitui-Wechat-bot/main/install.sh))
+
 ```
-
-## Manual Installation
-
-If the quick install doesn't work, follow these steps manually:
-
-### 1. Install the plugin
-
+*The script will automatically install Node.js, Python, FFmpeg, configure dependencies, and guide you to fill in your API Keys.*
+### 2. QR Code Login
+After installation, navigate to the project directory and run the standalone login script:
 ```bash
-openclaw plugins install "@tencent-weixin/openclaw-weixin"
+cd ~/WechatAI/openclaw-weixin
+node login.js
+
 ```
-
-### 2. Enable the plugin
-
+A QR code will appear in your terminal. Use the WeChat account you intend to use as the bot to scan and confirm. Credentials will be securely saved in the accounts/ directory.
+### 3. Start the Engines
+Once logged in, start all micro-services using PM2:
 ```bash
-openclaw config set plugins.entries.openclaw-weixin.enabled true
+pm2 start bot.js --name "wechat-bot"
+pm2 start voice-server.js --name "voice-engine"
+pm2 start image-server.js --name "image-engine"
+pm2 save
+
 ```
-
-### 3. QR code login
-
-```bash
-openclaw channels login --channel openclaw-weixin
-```
-
-A QR code will appear in the terminal. Scan it with your phone and confirm the authorization. Once confirmed, the login credentials will be saved locally automatically — no further action is needed.
-
-### 4. Restart the gateway
-
-```bash
-openclaw gateway restart
-```
-
-## Adding More WeChat Accounts
-
-```bash
-openclaw channels login --channel openclaw-weixin
-```
-
-Each QR code login creates a new account entry, supporting multiple WeChat accounts online simultaneously.
-
-## Multi-Account Context Isolation
-
-By default, DMs can share one session bucket. For **multiple logged-in WeChat accounts**, isolate by account + channel + sender:
-
-```bash
-openclaw config set session.dmScope per-account-channel-peer
-```
-
-## Backend API Protocol
-
-This plugin communicates with the backend gateway via HTTP JSON API. Developers integrating with their own backend need to implement the following interfaces.
-
-All endpoints use `POST` with JSON request and response bodies. Common request headers:
-
-| Header | Description |
-|--------|-------------|
-| `Content-Type` | `application/json` |
-| `AuthorizationType` | Fixed value `ilink_bot_token` |
-| `Authorization` | `Bearer <token>` (obtained after login) |
-| `X-WECHAT-UIN` | Base64-encoded random uint32 |
-
-### Endpoint List
-
-| Endpoint | Path | Description |
-|----------|------|-------------|
-| getUpdates | `getupdates` | Long-poll for new messages |
-| sendMessage | `sendmessage` | Send a message (text/image/video/file) |
-| getUploadUrl | `getuploadurl` | Get CDN upload pre-signed URL |
-| getConfig | `getconfig` | Get account config (typing ticket, etc.) |
-| sendTyping | `sendtyping` | Send/cancel typing status indicator |
-
-### getUpdates
-
-Long-polling endpoint. The server responds when new messages arrive or on timeout.
-
-**Request body:**
-
-```json
-{
-  "get_updates_buf": ""
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `get_updates_buf` | `string` | Sync cursor from the previous response; empty string for the first request |
-
-**Response body:**
-
-```json
-{
-  "ret": 0,
-  "msgs": [...],
-  "get_updates_buf": "<new cursor>",
-  "longpolling_timeout_ms": 35000
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `ret` | `number` | Return code, `0` = success |
-| `errcode` | `number?` | Error code (e.g., `-14` = session timeout) |
-| `errmsg` | `string?` | Error description |
-| `msgs` | `WeixinMessage[]` | Message list (structure below) |
-| `get_updates_buf` | `string` | New sync cursor to pass in the next request |
-| `longpolling_timeout_ms` | `number?` | Server-suggested long-poll timeout for the next request (ms) |
-
-### sendMessage
-
-Send a message to a user.
-
-**Request body:**
-
-```json
-{
-  "msg": {
-    "to_user_id": "<target user ID>",
-    "context_token": "<conversation context token>",
-    "item_list": [
-      {
-        "type": 1,
-        "text_item": { "text": "Hello" }
-      }
-    ]
-  }
-}
-```
-
-### getUploadUrl
-
-Get CDN upload pre-signed parameters. Call this endpoint before uploading a file to obtain `upload_param` and `thumb_upload_param`.
-
-**Request body:**
-
-```json
-{
-  "filekey": "<file identifier>",
-  "media_type": 1,
-  "to_user_id": "<target user ID>",
-  "rawsize": 12345,
-  "rawfilemd5": "<plaintext MD5>",
-  "filesize": 12352,
-  "thumb_rawsize": 1024,
-  "thumb_rawfilemd5": "<thumbnail plaintext MD5>",
-  "thumb_filesize": 1040
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `media_type` | `number` | `1` = IMAGE, `2` = VIDEO, `3` = FILE |
-| `rawsize` | `number` | Original file plaintext size |
-| `rawfilemd5` | `string` | Original file plaintext MD5 |
-| `filesize` | `number` | Ciphertext size after AES-128-ECB encryption |
-| `thumb_rawsize` | `number?` | Thumbnail plaintext size (required for IMAGE/VIDEO) |
-| `thumb_rawfilemd5` | `string?` | Thumbnail plaintext MD5 (required for IMAGE/VIDEO) |
-| `thumb_filesize` | `number?` | Thumbnail ciphertext size (required for IMAGE/VIDEO) |
-
-**Response body:**
-
-```json
-{
-  "upload_param": "<original image upload encrypted parameters>",
-  "thumb_upload_param": "<thumbnail upload encrypted parameters>"
-}
-```
-
-### getConfig
-
-Get account configuration, including the typing ticket.
-
-**Request body:**
-
-```json
-{
-  "ilink_user_id": "<user ID>",
-  "context_token": "<optional, conversation context token>"
-}
-```
-
-**Response body:**
-
-```json
-{
-  "ret": 0,
-  "typing_ticket": "<base64-encoded typing ticket>"
-}
-```
-
-### sendTyping
-
-Send or cancel the typing status indicator.
-
-**Request body:**
-
-```json
-{
-  "ilink_user_id": "<user ID>",
-  "typing_ticket": "<obtained from getConfig>",
-  "status": 1
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `status` | `number` | `1` = typing, `2` = cancel typing |
-
-### Message Structure
-
-#### WeixinMessage
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `seq` | `number?` | Message sequence number |
-| `message_id` | `number?` | Unique message ID |
-| `from_user_id` | `string?` | Sender ID |
-| `to_user_id` | `string?` | Receiver ID |
-| `create_time_ms` | `number?` | Creation timestamp (ms) |
-| `session_id` | `string?` | Session ID |
-| `message_type` | `number?` | `1` = USER, `2` = BOT |
-| `message_state` | `number?` | `0` = NEW, `1` = GENERATING, `2` = FINISH |
-| `item_list` | `MessageItem[]?` | Message content list |
-| `context_token` | `string?` | Conversation context token, must be passed back when replying |
-
-#### MessageItem
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | `number` | `1` TEXT, `2` IMAGE, `3` VOICE, `4` FILE, `5` VIDEO |
-| `text_item` | `{ text: string }?` | Text content |
-| `image_item` | `ImageItem?` | Image (with CDN reference and AES key) |
-| `voice_item` | `VoiceItem?` | Voice (SILK encoded) |
-| `file_item` | `FileItem?` | File attachment |
-| `video_item` | `VideoItem?` | Video |
-| `ref_msg` | `RefMessage?` | Referenced message |
-
-#### CDN Media Reference (CDNMedia)
-
-All media types (image/voice/file/video) are transferred via CDN using AES-128-ECB encryption:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `encrypt_query_param` | `string?` | Encrypted parameters for CDN download/upload |
-| `aes_key` | `string?` | Base64-encoded AES-128 key |
-
-### CDN Upload Flow
-
-1. Calculate the file's plaintext size, MD5, and ciphertext size after AES-128-ECB encryption
-2. If a thumbnail is needed (image/video), calculate the thumbnail's plaintext and ciphertext parameters as well
-3. Call `getUploadUrl` to get `upload_param` (and `thumb_upload_param`)
-4. Encrypt the file content with AES-128-ECB and PUT upload to the CDN URL
-5. Encrypt and upload the thumbnail in the same way
-6. Use the returned `encrypt_query_param` to construct a `CDNMedia` reference, include it in the `MessageItem`, and send
-
-> For complete type definitions, see [`src/api/types.ts`](src/api/types.ts). For API call implementations, see [`src/api/api.ts`](src/api/api.ts).
-
-## Uninstall
-
-```bash
-openclaw plugins uninstall @tencent-weixin/openclaw-weixin
-```
-
-## Troubleshooting
-
-### "requires OpenClaw >=2026.3.22" error
-
-Your OpenClaw version is too old for this plugin version. Check with:
-
-```bash
-openclaw --version
-```
-
-Install the legacy plugin line instead:
-
-```bash
-openclaw plugins install @tencent-weixin/openclaw-weixin@legacy
-```
-
-### Channel shows "OK" but doesn't connect
-
-Ensure `plugins.entries.openclaw-weixin.enabled` is `true` in `~/.openclaw/openclaw.json`:
-
-```bash
-openclaw config set plugins.entries.openclaw-weixin.enabled true
-openclaw gateway restart
-```
+## ⚙️ Advanced Configuration & Persona Customization
+This project strictly separates code from prompts (100% isolation), making it incredibly easy to customize:
+ * **Connections & Keys**: config.json (Manage all API keys, URLs, and device IPs).
+ * **LLM Parameters**: workspace/API.json (Control Temperature, Top_p, and Safety Settings).
+ * **Persona & Soul**: All rules are stored in .md files under the workspace/ directory.
+   * AGENTS.md: Core logic and memory management protocols.
+   * IMAGE.md / VOICE.md / MIIO.md: Dynamic rule injections for extended capabilities.
+> 💡 **Dynamic Capability Awareness**: If you leave the Image or TTS API keys blank in config.json, the system will **automatically hide** the corresponding instructions from the LLM prompt. This maximizes token savings and prevents AI hallucinations!
+> 
+## Acknowledgements
+ * Thanks to Tencent for the underlying WeChat protocol support.
+ * Parts of the decryption and communication code are modified from the open-source community under the MIT License.
+## License
+This project is licensed under the MIT License.
