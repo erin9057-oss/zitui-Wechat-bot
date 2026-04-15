@@ -114,19 +114,19 @@ if (fs.existsSync(CTX_CONF_PATH)) {
     } catch (e) {}
 }
 
-function randomWechatUin() {
-    const uint32 = crypto.randomBytes(4).readUInt32BE(0);
-    return Buffer.from(String(uint32), "utf-8").toString("base64");
-}
+// 🌟 核心修复 1：UIN 必须全局唯一！每次请求动态生成会被微信风控静默吞包
+const GLOBAL_UIN = Buffer.from(String(crypto.randomBytes(4).readUInt32BE(0)), "utf-8").toString("base64");
 
 function getWechatHeaders() {
     return {
         'Content-Type': 'application/json',
         'AuthorizationType': 'ilink_bot_token',  
         'Authorization': `Bearer ${WECHAT_TOKEN}`, 
-        'X-WECHAT-UIN': randomWechatUin(),
+        'X-WECHAT-UIN': GLOBAL_UIN, // 🚨 换成全局固定的 UIN
         'iLink-App-Id': 'bot',
-        'iLink-App-ClientVersion': '131335'
+        'iLink-App-ClientVersion': '131335',
+        // 🚨 核心修复 2：补充标准浏览器 UA，防止腾讯云 WAF 将请求当作爬虫拦截
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     };
 }
 
@@ -148,22 +148,36 @@ const saveMediaMock = async (buffer, contentType, subdir, maxBytes, originalFile
     return { path: fullPath };
 }
 
+// 🌟 核心修复 3：恢复 Typing 状态同步与错误日志
 async function setTypingStatus(userId, cToken, isTyping) {
     try {
+        if (!cToken) return; // 没有上下文 token 时不发送，防止报错
+        
         const confRes = await fetch(`${WECHAT_BASE_URL}/ilink/bot/getconfig`, {
             method: 'POST',
             headers: getWechatHeaders(),
             body: JSON.stringify({ ilink_user_id: userId, context_token: cToken, base_info: { channel_version: "2.1.7" }})
         });
+        
+        if (!confRes.ok) throw new Error(`获取 Config 失败 (HTTP ${confRes.status})`);
+        
         const confData = await confRes.json();
         if (confData.typing_ticket) {
-            await fetch(`${WECHAT_BASE_URL}/ilink/bot/sendtyping`, {
+            const typeRes = await fetch(`${WECHAT_BASE_URL}/ilink/bot/sendtyping`, {
                 method: 'POST',
                 headers: getWechatHeaders(),
                 body: JSON.stringify({ ilink_user_id: userId, typing_ticket: confData.typing_ticket, status: isTyping ? 1 : 2, base_info: { channel_version: "2.1.7" }})
             });
+            
+            if (!typeRes.ok) throw new Error(`发送 Typing 失败 (HTTP ${typeRes.status})`);
+            
+            // 🌟 恢复日志打印，方便监控
+            console.log(isTyping ? "✨ AI 正在输入中..." : "🔕 输入状态结束");
         }
-    } catch (err) {}
+    } catch (err) {
+        // 🌟 恢复错误抛出，如果微信风控拦截了，能第一时间在控制台看见
+        console.warn(`⚠️ Typing 状态同步跳过: ${err.message}`);
+    }
 }
 
 function saveSyncCursor(cursor) {
@@ -221,7 +235,6 @@ async function callAI(userId, textContent, mediaPaths = []) {
     try {
         console.log(`\n🧠 AI 正在动用多模态感官处理信息 (模型: ${AI_MODEL})...`);
         
-        // 🌟 修复 2：为原生的 fetch 加上强制超时！防止代理网关因 MIME 走私懵逼而永久挂死进程！
         const response = await fetch(AI_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AI_API_KEY}` },
@@ -229,7 +242,6 @@ async function callAI(userId, textContent, mediaPaths = []) {
             signal: AbortSignal.timeout(120000) // 120秒极限超时
         });
 
-        // 🌟 修复 3：如果代理报错，把尸体（Text Body）抛出来，不能光抛个空洞的 status code
         if (!response.ok) {
             const errText = await response.text().catch(() => "无返回体");
             throw new Error(`HTTP ${response.status} | 代理网关报错信息: ${errText}`);
@@ -241,7 +253,6 @@ async function callAI(userId, textContent, mediaPaths = []) {
         chatMemory[userId].push({ role: "assistant", content: rawReply });
         return rawReply;
     } catch (err) {
-        // 抓取并打印真实死因
         console.error(`\n❌ AI 请求失败:`, err.name === 'TimeoutError' ? '请求严重超时！(代理网关可能卡死了)' : err.message);
         chatMemory[userId].pop(); 
         return null;
@@ -366,7 +377,7 @@ async function startBot() {
                                         }
 
                                         userMediaBuffers[userId].push(finalPath);
-                                        userMessageBuffers[userId].push(`[User发送了一条语音消息，请听音频附件感知语气。如果需要，你可以回复 <voice>你的话</voice> 标签来回发语音]`);
+                                        userMessageBuffers[userId].push(`[User发送了一条语音消息，请听音频附件感知语气。`);
                                         hasContent = true;
                                         console.log(`✅ 语音提取并转码完毕！已接通听觉神经 (${finalPath})`);
                                     } else {
