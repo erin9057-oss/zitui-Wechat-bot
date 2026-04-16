@@ -159,18 +159,27 @@ pm2 start "$APP_DIR/summary.js" --name "memory-engine"
 
 pm2 save
 
+# 🌟 将使用绝对路径的启动命令强行注入 .bashrc，双重自启保险
 BASHRC_FILE="$HOME/.bashrc"
-if ! grep -q "wechat-bot" "$BASHRC_FILE"; then
-    echo -e "\n# 自推 Wechat Bot 开机自启" >> "$BASHRC_FILE"
-    echo "pm2 start $APP_DIR/bot.js --name \"wechat-bot\" 2>/dev/null || true" >> "$BASHRC_FILE"
-    echo "pm2 start $APP_DIR/voice-server.js --name \"voice-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
-    echo "pm2 start $APP_DIR/image-server.js --name \"image-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
-    echo "pm2 start $APP_DIR/sensor.js --name \"sensor-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
-    echo "pm2 start $APP_DIR/summary.js --name \"memory-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
-    echo "配置开机自启完成: 已注入绝对路径启动命令至 ~/.bashrc"
-else
-    echo "配置开机自启完成: 检测到 ~/.bashrc 中已有相关配置"
-fi
+
+echo -e "\n🧹 正在清理旧的自启配置..."
+# 使用 sed 删除所有包含旧行，防止重复写入
+sed -i '/wechat-bot/d' "$BASHRC_FILE"
+sed -i '/voice-engine/d' "$BASHRC_FILE"
+sed -i '/image-engine/d' "$BASHRC_FILE"
+sed -i '/sensor-engine/d' "$BASHRC_FILE"
+sed -i '/memory-engine/d' "$BASHRC_FILE"
+sed -i '/自推 Wechat Bot 开机自启/d' "$BASHRC_FILE"
+
+# 重新统一写入最新的 5 个引擎
+echo "# 自推 Wechat Bot 开机自启" >> "$BASHRC_FILE"
+echo "pm2 start $APP_DIR/bot.js --name \"wechat-bot\" 2>/dev/null || true" >> "$BASHRC_FILE"
+echo "pm2 start $APP_DIR/voice-server.js --name \"voice-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
+echo "pm2 start $APP_DIR/image-server.js --name \"image-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
+echo "pm2 start $APP_DIR/sensor.js --name \"sensor-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
+echo "pm2 start $APP_DIR/summary.js --name \"memory-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
+
+echo "✅ 配置开机自启完成: 已注入最新版的绝对路径启动命令至 ~/.bashrc"
 
 echo "==================================================="
 echo "🎉 自推 Wechat Bot 安装、配置及后台注册圆满完成！"
