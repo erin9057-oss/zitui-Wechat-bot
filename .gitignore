@@ -10,6 +10,7 @@ tmp_media/
 accounts/
 workspace/
 dist/
+Memory/
 
 .DS_Store
 .env.*
