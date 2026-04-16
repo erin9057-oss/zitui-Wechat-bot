@@ -163,6 +163,11 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
     
     let currentContext = [{ role: "system", content: SYSTEM_PROMPT }];
     
+    // 🌟 核心修复：打破大模型内部的 UTC 幻觉，每次强制注入当前北京时间！
+    const bjNow = new Date(Date.now() + 8 * 60 * 60 * 1000);
+    const bjTimeStr = bjNow.toISOString().replace('T', ' ').substring(0, 16);
+    currentContext.push({ role: "system", content: `【系统实时时钟】：当前北京时间为 ${bjTimeStr}` });
+
     // 注入剧本历史 (从 chat.js 提取)
     currentContext = currentContext.concat(getChatContext());
 
