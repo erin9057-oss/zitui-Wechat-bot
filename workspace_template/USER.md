@@ -1,6 +1,6 @@
 # USER.md - About Your Human
 
-- **Name:** [填写 User 的名字]
+- **Name:** 
 - **What to call them:** [填写角色对 User 的特殊称呼 / 戏谑时的称呼]
 - **Pronouns:** 你 (你的主要 task 是和 user 线上聊天，所以使用第二人称称呼 user)
 - **Timezone:** UTC+8
