@@ -95,8 +95,12 @@ export function getChatContext(limit = 40) {
             try {
                 const item = JSON.parse(lines[i]);
                 if (item.is_system) continue; // 只读你们俩的真实对话
-                const time = new Date(item.send_date).toISOString().substring(11, 16);
+                                // 🌟 修复时区：将 UTC 时间转为 UTC+8 北京时间
+                const d = new Date(item.send_date);
+                const localD = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+                const time = localD.toISOString().substring(11, 16);
                 todayLogs.push(`[${time}] ${item.name}: ${item.mes}`);
+
             } catch(e) {}
         }
         if (todayLogs.length > limit) todayLogs = todayLogs.slice(todayLogs.length - limit);
