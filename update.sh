@@ -43,12 +43,11 @@ echo -e "\n⚙️ [4/6] 正在重构底层逻辑 (npm install & build)..."
 npm install --no-optional
 npm run build
 
-# 5. 同步刷新 .bashrc 开机自启配置 (保障老用户升级也能自启新引擎)
+# 5. 同步刷新 .bashrc 开机自启配置
 echo -e "\n🧹 [5/6] 正在同步更新开机自启配置..."
 APP_DIR="$HOME/WechatAI/openclaw-weixin"
 BASHRC_FILE="$HOME/.bashrc"
 
-# 清理可能存在的旧版本自启配置
 sed -i '/wechat-bot/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/voice-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/image-engine/d' "$BASHRC_FILE" 2>/dev/null || true
@@ -56,7 +55,6 @@ sed -i '/sensor-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/memory-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/自推 Wechat Bot 开机自启/d' "$BASHRC_FILE" 2>/dev/null || true
 
-# 重新统一写入最新的 5 个引擎
 echo "# 自推 Wechat Bot 开机自启" >> "$BASHRC_FILE"
 echo "pm2 start $APP_DIR/bot.js --name \"wechat-bot\" 2>/dev/null || true" >> "$BASHRC_FILE"
 echo "pm2 start $APP_DIR/voice-server.js --name \"voice-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
@@ -64,13 +62,13 @@ echo "pm2 start $APP_DIR/image-server.js --name \"image-engine\" 2>/dev/null || 
 echo "pm2 start $APP_DIR/sensor.js --name \"sensor-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
 echo "pm2 start $APP_DIR/summary.js --name \"memory-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
 
-# 6. 重启唤醒
+# 6. 重启唤醒 (🌟 核心修复：存在则 restart，不存在则 start)
 echo -e "\n🔄 [6/6] 正在重启后台服务，唤醒 AI..."
-pm2 restart wechat-bot 2>/dev/null || true
-pm2 restart voice-engine 2>/dev/null || true
-pm2 restart image-engine 2>/dev/null || true
-pm2 restart sensor-engine 2>/dev/null || true
-pm2 restart memory-engine 2>/dev/null || true
+pm2 restart wechat-bot 2>/dev/null || pm2 start "$APP_DIR/bot.js" --name "wechat-bot"
+pm2 restart voice-engine 2>/dev/null || pm2 start "$APP_DIR/voice-server.js" --name "voice-engine"
+pm2 restart image-engine 2>/dev/null || pm2 start "$APP_DIR/image-server.js" --name "image-engine"
+pm2 restart sensor-engine 2>/dev/null || pm2 start "$APP_DIR/sensor.js" --name "sensor-engine"
+pm2 restart memory-engine 2>/dev/null || pm2 start "$APP_DIR/summary.js" --name "memory-engine"
 pm2 save
 
 echo "==================================================="
