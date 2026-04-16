@@ -11,16 +11,13 @@ echo "==================================================="
 # 1. 环境检查与底层依赖安装
 echo -e "\n📦 [1/6] 正在安装底层系统依赖 (FFmpeg & Python)..."
 if command -v pkg >/dev/null 2>&1; then
-    # Termux 环境
     pkg update -y
     pkg install -y git nodejs python ffmpeg
 else
-    # 普通 Linux 环境 (Ubuntu/Debian 等)
     sudo apt update
     sudo apt install -y git nodejs npm python3 python3-pip ffmpeg
 fi
 
-# 安装腾讯 SILK 魔改库
 echo "正在安装鹅语音 Python 依赖 (pilk)..."
 pip3 install pilk
 
@@ -36,7 +33,6 @@ if [ -d "openclaw-weixin" ]; then
     mv openclaw-weixin "openclaw-weixin_backup_$(date +%s)"
 fi
 
-# 🌟github地址
 git clone https://github.com/erin9057-oss/zitui-Wechat-bot.git openclaw-weixin
 cd openclaw-weixin
 
@@ -51,7 +47,6 @@ npm install -g pm2
 # ===================================================
 echo -e "\n🧠 正在检查人设工作区与凭证目录..."
 
-# 1. 检查并保护 accounts 目录
 if [ ! -d "accounts" ]; then
     mkdir -p accounts
     echo "✅ 凭证目录 (accounts) 已就绪，等待扫码接入。"
@@ -59,11 +54,9 @@ else
     echo "✅ 检测到本地已有 accounts 文件夹，将为您保留历史登录记录。"
 fi
 
-# 2. 检查并初始化 workspace 目录
 if [ ! -d "workspace" ] || [ -z "$(ls -A workspace 2>/dev/null)" ]; then
     echo "📦 正在从 workspace_template 注入出厂人设与 API 配置文件..."
     mkdir -p workspace
-    # 将模板内的所有 MD 文件和 API.json 完整拷贝进去
     cp -r workspace_template/* workspace/ 2>/dev/null || true
     echo "✅ 工作区 (workspace) 初始化完毕！用户后续可自由修改 MD 文件与 API.json。"
 else
@@ -76,37 +69,31 @@ echo -e "\n📝 [5/6] 正在进入交互式配置向导..."
 echo "请根据提示输入相应的 API Key 和参数 (直接按回车可使用括号内的默认值):"
 echo "---------------------------------------------------"
 
-# --- 大模型配置 ---
-read -p "👉 [对话] 请输入聊天AI API地址,结尾需添加/v1，不要添加/chat/completions [默认: http://127.0.0.1:7861/v1]: " CHAT_API_BASE
+read -p "👉 [对话] 请输入聊天AI API地址,结尾需添加/v1，不要添加/chat/completions [默认: http://127.0.0.1:7861/v1]: " CHAT_API_BASE < /dev/tty
 CHAT_API_BASE=${CHAT_API_BASE:-"http://127.0.0.1:7861/v1"}
 
-read -p "👉 [对话] 请输入聊天AI API Key: " CHAT_API_KEY
+read -p "👉 [对话] 请输入聊天AI API Key: " CHAT_API_KEY < /dev/tty
 
-read -p "👉 [对话] 请输入 模型名称 若使用非哈基米LLM请在./workspace/API.JSON里修改对应参数 [默认: gemini-3.1-pro-preview-search]: " CHAT_MODEL
+read -p "👉 [对话] 请输入 模型名称 若使用非哈基米LLM请在./workspace/API.JSON里修改对应参数 [默认: gemini-3.1-pro-preview-search]: " CHAT_MODEL < /dev/tty
 CHAT_MODEL=${CHAT_MODEL:-"gemini-3.1-pro-preview-search"}
 
-# --- 生图配置 ---
 echo "---------------------------------------------------"
-read -p "👉 [生图] 请输入 Gemini 生图 目前只做了香蕉接口 API Key: " IMAGE_API_KEY
+read -p "👉 [生图] 请输入 Gemini 生图 目前只做了香蕉接口 API Key: " IMAGE_API_KEY < /dev/tty
 
-read -p "👉 [生图] 请输入 生图模型名称 [默认: gemini-3-pro-image-preview]: " IMAGE_MODEL
+read -p "👉 [生图] 请输入 生图模型名称 [默认: gemini-3-pro-image-preview]: " IMAGE_MODEL < /dev/tty
 IMAGE_MODEL=${IMAGE_MODEL:-"gemini-3-pro-image-preview"}
 
-# --- 语音配置 ---
 echo "---------------------------------------------------"
 echo "🎙️  语音回复 火山引擎 TTS 节点配置 (必填) 目前没有做别的接口"
-read -p "👉 [TTS] 请输入 ByteDance AppID: " TTS_APPID
-read -p "👉 [TTS] 请输入 ByteDance Token: " TTS_TOKEN
-read -p "👉 [TTS] 请输入 Voice ID: " TTS_VOICE_ID
+read -p "👉 [TTS] 请输入 ByteDance AppID: " TTS_APPID < /dev/tty
+read -p "👉 [TTS] 请输入 ByteDance Token: " TTS_TOKEN < /dev/tty
+read -p "👉 [TTS] 请输入 Voice ID: " TTS_VOICE_ID < /dev/tty
 
-# --- 智能家居配置 ---
 echo "---------------------------------------------------"
 echo "🏠 智能家居 Miio 配置 (可选，不使用请直接回车跳过)"
-read -p "👉 [Miio] 请输入 设备局域网 IP: " MIIO_IP
-read -p "👉 [Miio] 请输入 设备 Token: " MIIO_TOKEN
+read -p "👉 [Miio] 请输入 设备局域网 IP: " MIIO_IP < /dev/tty
+read -p "👉 [Miio] 请输入 设备 Token: " MIIO_TOKEN < /dev/tty
 
-
-# 🌟 生成动态 config.json 文件
 echo -e "\n🪄 正在生成 config.json 配置文件..."
 
 cat <<EOF > ~/WechatAI/openclaw-weixin/config.json
@@ -154,27 +141,24 @@ else
     echo "⚠️ 即将获取微信登录二维码..."
     echo "请准备好手机微信。如暂不方便扫码，可直接按回车跳过此步骤。"
     sleep 2
-    # 执行扫码脚本 (支持回车跳过)
-    node login.js
+    # 🚨 核心修复：防止 login.js 吃掉后面的脚本代码
+    node login.js < /dev/tty
 fi
 echo "==================================================="
 
-# 🌟 无论是否扫码，强制配置 PM2 守护进程
+# 🌟 强制配置 PM2 守护进程
 echo -e "\n✅ 正在通过 PM2 启动并注册后台引擎..."
 
 APP_DIR="$HOME/WechatAI/openclaw-weixin"
 
-# 使用绝对路径启动所有进程（包含新增的 sensor 和 memory 引擎）
 pm2 start "$APP_DIR/bot.js" --name "wechat-bot"
 pm2 start "$APP_DIR/voice-server.js" --name "voice-engine"
 pm2 start "$APP_DIR/image-server.js" --name "image-engine"
 pm2 start "$APP_DIR/sensor.js" --name "sensor-engine"
 pm2 start "$APP_DIR/summary.js" --name "memory-engine"
 
-# 保存当前完美的进程快照
 pm2 save
 
-# 🌟 将使用绝对路径的启动命令强行注入 .bashrc，双重自启保险
 BASHRC_FILE="$HOME/.bashrc"
 if ! grep -q "wechat-bot" "$BASHRC_FILE"; then
     echo -e "\n# 自推 Wechat Bot 开机自启" >> "$BASHRC_FILE"
