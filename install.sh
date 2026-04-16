@@ -164,10 +164,12 @@ echo -e "\n✅ 正在通过 PM2 启动并注册后台引擎..."
 
 APP_DIR="$HOME/WechatAI/openclaw-weixin"
 
-# 使用绝对路径启动进程
+# 使用绝对路径启动所有进程（包含新增的 sensor 和 memory 引擎）
 pm2 start "$APP_DIR/bot.js" --name "wechat-bot"
 pm2 start "$APP_DIR/voice-server.js" --name "voice-engine"
 pm2 start "$APP_DIR/image-server.js" --name "image-engine"
+pm2 start "$APP_DIR/sensor.js" --name "sensor-engine"
+pm2 start "$APP_DIR/summary.js" --name "memory-engine"
 
 # 保存当前完美的进程快照
 pm2 save
@@ -179,6 +181,8 @@ if ! grep -q "wechat-bot" "$BASHRC_FILE"; then
     echo "pm2 start $APP_DIR/bot.js --name \"wechat-bot\" 2>/dev/null || true" >> "$BASHRC_FILE"
     echo "pm2 start $APP_DIR/voice-server.js --name \"voice-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
     echo "pm2 start $APP_DIR/image-server.js --name \"image-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
+    echo "pm2 start $APP_DIR/sensor.js --name \"sensor-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
+    echo "pm2 start $APP_DIR/summary.js --name \"memory-engine\" 2>/dev/null || true" >> "$BASHRC_FILE"
     echo "配置开机自启完成: 已注入绝对路径启动命令至 ~/.bashrc"
 else
     echo "配置开机自启完成: 检测到 ~/.bashrc 中已有相关配置"
