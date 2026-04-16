@@ -8,7 +8,7 @@ tmp_media/
 
 # 🚨 绝对不能传上去的私密凭证！
 accounts/
-
+workspace/
 dist/
 
 .DS_Store
