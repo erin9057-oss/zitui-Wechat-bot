@@ -8,10 +8,11 @@ echo "==================================================="
 BACKUP_DIR="../wechat_bot_backup_$(date +%s)"
 mkdir -p "$BACKUP_DIR"
 
-echo -e "\n📦 [1/5] 正在将你的 配置文件转移至安全路径..."
+echo -e "\n📦 [1/5] 正在将你的 配置文件与记忆数据转移至安全路径..."
 # 备份所有核心用户数据（即使某些文件不存在也不会报错中断）
 cp -r accounts "$BACKUP_DIR/" 2>/dev/null || true
 cp -r workspace "$BACKUP_DIR/" 2>/dev/null || true
+cp -r Memory "$BACKUP_DIR/" 2>/dev/null || true  # 🌟 新增：完美备份 Memory 目录
 cp config.json "$BACKUP_DIR/" 2>/dev/null || true
 cp ref.png "$BACKUP_DIR/" 2>/dev/null || true
 cp voice.png "$BACKUP_DIR/" 2>/dev/null || true
@@ -32,7 +33,7 @@ git clean -fd
 # 3. 恢复配置文件
 echo -e "\n💖 [3/5] 正在将灵魂数据重新注入最新架构..."
 # 先清理拉取下来的空壳或模板
-rm -rf accounts/ workspace/
+rm -rf accounts/ workspace/ Memory/
 # 将备份的数据全盘覆盖回来
 cp -r "$BACKUP_DIR"/* ./ 2>/dev/null || true
 
@@ -47,6 +48,8 @@ echo -e "\n🔄 [5/5] 正在重启后台服务，唤醒 AI..."
 pm2 restart wechat-bot 2>/dev/null || true
 pm2 restart voice-engine 2>/dev/null || true
 pm2 restart image-engine 2>/dev/null || true
+pm2 restart sensor-engine 2>/dev/null || true
+pm2 restart memory-engine 2>/dev/null || true
 pm2 save
 
 echo "==================================================="
