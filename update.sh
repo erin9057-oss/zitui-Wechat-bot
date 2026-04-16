@@ -4,7 +4,8 @@ echo "🚀 正在执行 自推 Wechat Bot 更新程序..."
 echo "==================================================="
 
 # 1. 创建配置文件临时备份路径
-BACKUP_DIR="/tmp/wechat_bot_backup_$(date +%s)"
+# 🌟 修复：改用 Termux 绝对有权限的上一级目录作为备份点
+BACKUP_DIR="../wechat_bot_backup_$(date +%s)"
 mkdir -p "$BACKUP_DIR"
 
 echo -e "\n📦 [1/5] 正在将你的 配置文件转移至安全路径..."
@@ -17,6 +18,12 @@ cp voice.png "$BACKUP_DIR/" 2>/dev/null || true
 
 # 2. 更新本地旧代码，强制与 GitHub 远端主分支对齐
 echo -e "\n🌪️ [2/5] 正在拉取远端最新文件..."
+# 🌟 修复：如果本地 .git 文件夹丢失，自动重新初始化并绑定远端
+if [ ! -d ".git" ]; then
+    echo "🔧 检测到缺失 Git 仓库记录，正在重新绑定..."
+    git init
+    git remote add origin https://github.com/erin9057-oss/zitui-Wechat-bot.git
+fi
 git fetch --all
 git reset --hard origin/main
 # 如果远端有新加的模板文件，确保工作区干净
@@ -31,7 +38,8 @@ cp -r "$BACKUP_DIR"/* ./ 2>/dev/null || true
 
 # 4. 重新安装依赖与编译
 echo -e "\n⚙️ [4/5] 正在重构底层逻辑 (npm install & build)..."
-npm install
+# 🌟 修复：跳过某些在安卓上无法编译的可选 C++ 底层模块（如 koffi/spawn.h）
+npm install --no-optional
 npm run build
 
 # 5. 重启唤醒
