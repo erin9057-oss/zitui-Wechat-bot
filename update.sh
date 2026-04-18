@@ -22,7 +22,7 @@ echo -e "\n🌪️ [2/6] 正在拉取远端最新文件..."
 if [ ! -d ".git" ]; then
     echo "🔧 检测到缺失 Git 仓库记录，正在重新绑定..."
     git init
-    git remote add origin https://github.com/erin9057-oss/zitui-Wechat-bot-enhanced.git
+    git remote add origin https://github.com/erin9057-oss/zitui-Wechat-bot.git
 fi
 git fetch --all
 git reset --hard origin/main
