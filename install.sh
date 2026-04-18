@@ -5,7 +5,7 @@ set -e
 # 自推 Wechat Bot Enhanced 一键安装与迁移向导
 # ===================================================
 
-REPO_URL="https://github.com/erin9057-oss/zitui-Wechat-bot-enhanced.git"
+REPO_URL="https://github.com/erin9057-oss/zitui-Wechat-bot.git"
 BASE_DIR="$HOME/WechatAI"
 APP_DIR="$BASE_DIR/openclaw-weixin"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -302,5 +302,5 @@ echo "==================================================="
 echo "✅ 当前仓库来源：$REPO_URL"
 echo "✅ 历史目录备份：$BACKUP_DIR"
 echo "✅ accounts/ 已被视为最高优先级数据并优先迁移。"
-echo "💡 正确的一键安装命令：bash <(curl -sSL https://raw.githubusercontent.com/erin9057-oss/zitui-Wechat-bot-enhanced/main/install.sh)"
+echo "💡 正确的一键安装命令：bash <(curl -sSL https://raw.githubusercontent.com/erin9057-oss/zitui-Wechat-bot/main/install.sh)"
 echo "==================================================="
