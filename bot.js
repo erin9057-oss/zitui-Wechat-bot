@@ -14,10 +14,21 @@ import { downloadMediaFromItem } from '/data/data/com.termux/files/home/WechatAI
 
 // 🌟 引入全新单轨记忆引擎
 import { getChatContext, saveInteraction } from './chat.js';
+import {
+    获取基础目录,
+    获取账号目录,
+    获取工作区目录,
+    获取主配置,
+    获取运行策略,
+    获取梦境事件路径,
+    获取紧急事件路径,
+    获取传感映射路径,
+    当前是否处于唤醒时段,
+} from './lib/runtime-config.js';
 
-const BASE_DIR = '/data/data/com.termux/files/home/WechatAI/openclaw-weixin';
-const ACCOUNT_DIR = path.join(BASE_DIR, 'accounts');
-const WORKSPACE_DIR = path.join(BASE_DIR, 'workspace');
+const BASE_DIR = 获取基础目录();
+const ACCOUNT_DIR = 获取账号目录();
+const WORKSPACE_DIR = 获取工作区目录();
 
 if (!fs.existsSync(ACCOUNT_DIR)) {
     console.error("❌ 找不到 accounts 文件夹，请先执行 node login.js 扫码登录！");
@@ -45,9 +56,8 @@ const WECHAT_TOKEN = wxConfig.token;
 const CDN_BASE_URL = wxConfig.baseUrl; 
 const MY_USER_ID = wxConfig.userId;
 
-const CONFIG_PATH = path.join(BASE_DIR, 'config.json');
-const extConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-const AI_API_URL = `${extConfig.chat_llm.api_base_url.replace(/\/$/, '')}/chat/completions`; 
+const extConfig = 获取主配置();
+const AI_API_URL = `${extConfig.chat_llm.api_base_url.replace(/\/$/, '')}/chat/completions`;
 const AI_API_KEY = extConfig.chat_llm.api_key;
 const AI_MODEL = extConfig.chat_llm.model_name;
 
@@ -91,7 +101,10 @@ const userMessageBuffers = {};
 const userMediaBuffers = {}; 
 const userTimers = {};         
 const isThinking = {};       
-const WAIT_TIME_MS = 7000;   
+
+function 获取等待时间毫秒() {
+    return Number(获取运行策略().wait_time_ms ?? 7000);
+}
 
 let contextTokens = {};
 if (fs.existsSync(CTX_CONF_PATH)) {
@@ -409,7 +422,7 @@ async function startBot() {
                         userTimers[userId] = setTimeout(() => {
                             delete userTimers[userId];
                             processBuffer(userId);
-                        }, WAIT_TIME_MS); 
+                        }, 获取等待时间毫秒()); 
                     }
                 }
             }
@@ -422,19 +435,19 @@ async function startBot() {
 
 // 🌟 半小时闲置主动关怀引擎
 setInterval(async () => {
-    const IDLE_LIMIT = 30 * 60 * 1000; 
+    const runtimeConfig = 获取运行策略();
+    const IDLE_LIMIT = Number(runtimeConfig.idle_limit_ms ?? 30 * 60 * 1000);
     const nowMs = Date.now();
     const bjDate = new Date(nowMs + 8 * 60 * 60 * 1000);
-    const currentHour = bjDate.getUTCHours(); 
-    const timeStr = bjDate.toISOString().replace('T', ' ').substring(0, 19); 
+    const timeStr = bjDate.toISOString().replace('T', ' ').substring(0, 19);
     
-    if ((currentHour >= 9 || currentHour < 3) && (nowMs - lastInteractionTime > IDLE_LIMIT) && !isThinking[MY_USER_ID]) {
+    if (当前是否处于唤醒时段() && (nowMs - lastInteractionTime > IDLE_LIMIT) && !isThinking[MY_USER_ID]) {
         lastInteractionTime = Date.now(); 
 
         let sensorContext = "";
         try {
-            const DB_PATH = path.join(WORKSPACE_DIR, 'dream_events.json');
-            const MAP_PATH = path.join(WORKSPACE_DIR, 'sensor_map.json');
+            const DB_PATH = 获取梦境事件路径();
+            const MAP_PATH = 获取传感映射路径();
             
             let sensorMap = {};
             if (fs.existsSync(MAP_PATH)) {
@@ -474,7 +487,7 @@ setInterval(async () => {
 setInterval(async () => {
     if (isThinking[MY_USER_ID]) return; 
 
-    const URGENT_PATH = path.join(WORKSPACE_DIR, 'urgent_event.json');
+    const URGENT_PATH = 获取紧急事件路径();
     if (!fs.existsSync(URGENT_PATH)) return; 
 
     try {
@@ -482,7 +495,7 @@ setInterval(async () => {
         fs.unlinkSync(URGENT_PATH); 
         
         const urgentEvent = JSON.parse(raw);
-        const MAP_PATH = path.join(WORKSPACE_DIR, 'sensor_map.json');
+        const MAP_PATH = 获取传感映射路径();
         let extraHint = "";
         
         if (fs.existsSync(MAP_PATH)) {
