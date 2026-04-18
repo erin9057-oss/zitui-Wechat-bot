@@ -1,0 +1,5 @@
+{
+  "active_full_log": null,
+  "updated_at": null,
+  "note": "当该值为空时，系统会回退到旧的按最新修改时间自动选择逻辑。"
+}
