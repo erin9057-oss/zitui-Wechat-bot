@@ -252,7 +252,7 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${AI_API_KEY}` },
             body: JSON.stringify({ model: AI_MODEL, messages: currentContext, ...AI_PARAMS }),
-            signal: AbortSignal.timeout(120000) 
+            signal: AbortSignal.timeout(300000) 
         });
 
         if (!response.ok) throw new Error(await response.text().catch(() => "无返回体"));
@@ -291,9 +291,14 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         saveInteraction(logUserText, thoughts, cleanReply);
 
         return replyContent; 
-    } catch (err) {
-        console.error(`\n❌ AI 请求失败:`, err.message);
-        return null;
+        } catch (err) {
+        // 🌟 明确指出是不是超时导致的
+        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+            console.error(`\n❌ AI 请求超时 (超过 5 分钟未返回数据，可能是 Luma 生图太慢导致被掐断)`);
+        } else {
+            console.error(`\n❌ AI 请求失败:`, err.message);
+        }
+        return null; 
     }
 }
 
@@ -323,6 +328,7 @@ async function processBuffer(userId) {
         await sendMessageWeixin({
             to: userId,
             text: aiReply,
+            // 🌟 还原回 15 秒，避免阻塞底层连接
             opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: cToken, timeoutMs: 15000 }
         });
     }
@@ -477,7 +483,8 @@ setInterval(async () => {
         if (aiReply) {
             await sendMessageWeixin({
                 to: MY_USER_ID, text: aiReply,
-                opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: contextTokens[MY_USER_ID] }
+                // 🌟 还原回 15 秒
+                opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: contextTokens[MY_USER_ID], timeoutMs: 15000 }
             });
         }
     }
@@ -521,7 +528,8 @@ setInterval(async () => {
         if (aiReply) {
             await sendMessageWeixin({
                 to: MY_USER_ID, text: aiReply,
-                opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: contextTokens[MY_USER_ID] }
+                // 🌟 还原回 15 秒
+                opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: contextTokens[MY_USER_ID], timeoutMs: 15000 }
             });
         }
     } catch (err) {}
