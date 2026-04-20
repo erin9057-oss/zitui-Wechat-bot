@@ -32,6 +32,29 @@ try {
 
 function generateClientId(): string { return generateId("openclaw-weixin"); }
 
+// 🌟 防 522 死亡连接装甲：遇到网络切断，直接刷新重发
+async function safeSendMessageApi(params: { baseUrl: string | undefined; token: string | undefined; body: SendMessageReq }) {
+    try {
+        // 使用 as any 绕过底层接口的死板类型检查
+        await sendMessageApi(params as any);
+    } catch (err: any) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (errMsg.includes('522') || errMsg.includes('timeout') || errMsg.includes('fetch')) {
+            console.log(`\n⚠️ 遭遇 522 沉睡断连 (微信网关掐断了空闲 Socket)。正在强行刷新连接重发...`);
+            
+            // 🌟 修复 TS18048：增加对 msg 是否存在的安全判断
+            if (params.body && params.body.msg) {
+                params.body.msg.client_id = generateClientId();
+            }
+            
+            await sendMessageApi(params as any);
+            console.log(`✅ 死链复活！重发成功！`);
+        } else {
+            throw err; // 抛出其他正常错误
+        }
+    }
+}
+
 function buildTextMessageReq(params: { to: string; text: string; contextToken?: string; clientId: string; }): SendMessageReq {
   const { to, text, contextToken, clientId } = params;
   const item_list: MessageItem[] = text ? [{ type: MessageItemType.TEXT, text_item: { text } }] : [];
@@ -98,22 +121,37 @@ export async function sendMessageWeixin(params: {
           const imgPrompt = (picMatch[2] || picMatch[1]).trim();
           try {
               const imageApiUrl = extConfig?.services?.image_server_url || 'http://127.0.0.1:7862/v1/images/generations';
+              
+              // 🌟 新增日志：让你知道 send.js 确实开始索要图片了
+              console.log(`\n📸 [send.ts] 拦截到生图标签，正在向 image-server 请求图片 (耐心等待中)...`);
+              
               const imgRes = await fetch(imageApiUrl, {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ prompt: imgPrompt, type: imgType }),
-                  signal: AbortSignal.timeout(45000) 
+                  // 🌟 这里必须保持 300000，因为这是等 Luma 画图的耐心！
+                  signal: AbortSignal.timeout(300000) 
               });
               if (!imgRes.ok) throw new Error(await imgRes.text());
               
               const imgData = await imgRes.json() as any;
               if (imgData.success && imgData.data[0].b64_json) {
+                  // 🌟 新增日志：成功拿到图，准备上传
+                  console.log(`✅ [send.ts] 成功收到图片 Base64，正在上传至微信服务器...`);
+                  
                   const tmpPath = path.join(os.tmpdir(), `gen_${Date.now()}.png`);
                   fs.writeFileSync(tmpPath, Buffer.from(imgData.data[0].b64_json, 'base64'));
                   const uploaded = await uploadFileToWeixin({ filePath: tmpPath, toUserId: to, opts, cdnBaseUrl: opts.baseUrl });
                   const res = await sendImageMessageWeixin({ to, text: "", uploaded, opts });
                   lastId = res.messageId;
+                  
+                  // 🌟 新增日志：彻底发通
+                  console.log(`🎉 [send.ts] 图片已成功发往微信！`);
               }
-          } catch (err) {}
+          } catch (err: any) {
+              // 🌟 核心修复：打破静默黑洞！并且安抚 TypeScript 的类型检查
+              const errorMessage = err instanceof Error ? err.message : String(err);
+              console.error(`\n❌ [send.ts] 索取图片或发送微信失败:`, errorMessage);
+          }
           continue; 
       }
 
@@ -154,7 +192,10 @@ export async function sendMessageWeixin(params: {
               const clientId = generateClientId();
               const req = buildSendMessageReq({ to, contextToken: opts.contextToken, payload: { text: speakText }, clientId });
               console.log(`\n💬 [发往微信的纯文本] -> \n${speakText}`);
-              await sendMessageApi({ baseUrl: opts.baseUrl, token: opts.token, body: req });
+              
+              // 🌟 使用防弹装甲发送
+              await safeSendMessageApi({ baseUrl: opts.baseUrl, token: opts.token, body: req });
+              
               lastId = clientId;
               await new Promise(r => setTimeout(r, 1000));
           }
@@ -181,7 +222,9 @@ export async function sendMessageWeixin(params: {
           
           console.log(`\n💬 [发往微信的纯文本] -> \n${cleanText}`);
           
-          await sendMessageApi({ baseUrl: opts.baseUrl, token: opts.token, body: req });
+          // 🌟 使用防弹装甲发送
+          await safeSendMessageApi({ baseUrl: opts.baseUrl, token: opts.token, body: req });
+          
           lastId = clientId;
           await new Promise(r => setTimeout(r, 1500 + (cleanText.length * 50) + (Math.random() * 500)));
       }
@@ -215,8 +258,11 @@ async function sendMediaItems(params: {
     console.log(`\n📤 [发往微信的多媒体包裹] ->\n${JSON.stringify(logItem, null, 2)}`);
 
     try {
-      await sendMessageApi({ baseUrl: opts.baseUrl, token: opts.token, body: req });
-    } catch (err) {}
+      // 🌟 使用防弹装甲发送媒体
+      await safeSendMessageApi({ baseUrl: opts.baseUrl, token: opts.token, body: req });
+    } catch (err: any) {
+        console.error(`\n❌ [send.ts] 发送媒体消息最终失败:`, err instanceof Error ? err.message : String(err));
+    }
   }
   return { messageId: lastClientId };
 }
