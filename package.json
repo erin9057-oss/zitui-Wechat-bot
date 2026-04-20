@@ -12,6 +12,7 @@
     "node": "^22.0.0"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.19.0",
     "@google/genai": "latest",
     "qrcode-terminal": "^0.12.0",
