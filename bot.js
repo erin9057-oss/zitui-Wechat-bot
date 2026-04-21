@@ -80,8 +80,6 @@ for (const file of mdFiles) {
 
 // 🌟 2. 动态能力与 FORMAT.md 加载
 const hasMiio = extConfig.miio?.ip && !extConfig.miio.ip.includes("YOUR_");
-const hasImage = extConfig.image_generation?.api_key && !extConfig.image_generation.api_key.includes("YOUR_");
-const hasVoice = extConfig.tts?.credentials?.some(c => c.appid && !c.appid.includes("YOUR_"));const hasMiio = extConfig.miio?.ip && !extConfig.miio.ip.includes("YOUR_");
 
 // 🌟 修复：双重校验！要么有正常的 Gemini Key，要么配置了 Luma 的 realm_id (兼容放于 image_generation 或 luma 节点下)
 const hasImage = (extConfig.image_generation?.api_key && !extConfig.image_generation.api_key.includes("YOUR_")) || 
@@ -89,7 +87,6 @@ const hasImage = (extConfig.image_generation?.api_key && !extConfig.image_genera
                  (extConfig.luma?.realm_id);
 
 const hasVoice = extConfig.tts?.credentials?.some(c => c.appid && !c.appid.includes("YOUR_"));
-
 
 let ruleIndex = 8;
 let dynamicRules = "";
