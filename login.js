@@ -8,10 +8,15 @@ import path from 'path';
 import crypto from 'crypto';
 import qrcodeTerminal from 'qrcode-terminal';
 import readline from 'readline';
+import { fileURLToPath } from 'url'; // 🌟 新增：引入 url 模块解析文件路径
 
 const FIXED_BASE_URL = "https://ilinkai.weixin.qq.com";
 const BOT_TYPE = "3"; 
-const ACCOUNT_DIR = path.join(process.cwd(), 'accounts');
+
+// 🌟 核心修复 3：动态获取当前脚本的绝对路径，把 accounts 目录“焊死”在这里
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ACCOUNT_DIR = path.join(__dirname, 'accounts');
 
 if (!fs.existsSync(ACCOUNT_DIR)) {
     fs.mkdirSync(ACCOUNT_DIR, { recursive: true });
@@ -115,7 +120,7 @@ async function startLogin() {
                 if (!fs.existsSync(syncConfPath)) fs.writeFileSync(syncConfPath, JSON.stringify({}));
                 if (!fs.existsSync(ctxConfPath)) fs.writeFileSync(ctxConfPath, JSON.stringify({}));
 
-                console.log(`🎉 账号凭证已安全保存至: accounts/${accountId}-im-bot.json`);
+                console.log(`🎉 账号凭证已安全保存至: ${mainConfPath}`); // 打印绝对路径，让小白看得更放心
                 break;
             }
         } catch (e) {
