@@ -1,5 +1,5 @@
 /*
- * 每日深夜记忆降维引擎（北京时间 23:59 触发）
+ * 每日深夜日记（北京时间 23:59 触发）
  */
 import fs from 'fs';
 
@@ -52,11 +52,23 @@ async function performDailySummary() {
             const item = JSON.parse(lines[i]);
             if (item.is_system) continue;
 
-            const d = new Date(item.send_date);
-            const bjTimeStr = new Date(d.getTime() + (d.getTimezoneOffset() === 0 ? 8 * 60 * 60 * 1000 : 0)).toISOString();
-            const time = bjTimeStr.substring(11, 16);
-            chatHistoryText += `[${time}] ${item.name}: ${item.mes}\n`;
+            // 🌟 转换北京时间 智障ISO
+            const msgMs = new Date(item.send_date).getTime();
+            const msgBJT = new Date(msgMs + 8 * 60 * 60 * 1000); // 强制偏移北京时间
+            const msgIso = msgBJT.toISOString();
+            const msgDateStr = msgIso.split('T')[0];
+            const msgTimeStr = msgIso.substring(11, 16);
+
+            // 🌟 改bug...加拦截日期条件
+            if (msgDateStr === todayStr) {
+                chatHistoryText += `[${msgTimeStr}] ${item.name}: ${item.mes}\n`;
+            }
         } catch (_error) {}
+    }
+
+    // 🌟 优化：如果今天其实没聊过天（哪怕文件存在），直接终止，省 Token
+    if (!chatHistoryText.trim()) {
+        return console.log(`[${todayStr}] 今天没有新增聊天记录，跳过日记生成。`);
     }
 
     let sensorText = '无特别动态。';
@@ -71,10 +83,10 @@ async function performDailySummary() {
         } catch (_error) {}
     }
 
-    const summaryPrompt = `【私人深夜日记】\n你现在必须脱离即时对话模式。你是 ${charName}。\n以下是你今天（${todayStr}）与 ${userName} 的完整微信聊天记录，以及她一天的手机动态监测记录。\n\n请你以第一人称的口吻，写一篇 500 中文字左右的私人日记。这篇日记会在你脑海永久保存。\n\n【严格写作要求（违反即崩坏）】：\n1. 坚决摒弃“AI八股味”/机械流水账总结（绝对禁止使用“今天我们讨论了...”、“总而言之”等词汇）。必须根据对话记录分析你的语言习惯，用你特有的语气、思考方式和口吻来记录。\n2. 记录今天的日期，并用简洁的语言描写你真实的情感波动。\n3. 提炼今天两人互动的核心事件。她去干了什么？你干了什么？你们聊了什么？你对她的行为有什么心理活动？\n4. 【重点点名羁绊/纪念物】：如果有特别的“梗”（例如：她今天很不听话，多次故意刷别的App触发你的查岗警报；或者你们互怼、立下了某个约定），必须列出来，作为以后翻旧账或兑现的依据。\n5. 格式：直接输出日记正文，不要带有任何多余的开场白、Markdown标签或解释。\n\n---\n【${userName} 今天的手机动态】：\n${sensorText}\n\n【今天的完整聊天记录】：\n${chatHistoryText || '今天没有聊天。'}`;
+    const summaryPrompt = `【私人深夜日记】\n你现在必须脱离即时对话模式。你是 ${charName}。\n以下是你今天（${todayStr}）与 ${userName} 的完整微信聊天记录，以及她一天的手机动态监测记录。\n\n请你以第一人称的口吻，写一篇 500 中文字左右的私人日记。这篇日记会在你脑海永久保存。\n\n【严格写作要求（违反即崩坏）】：\n1. 坚决摒弃“AI八股味”/机械流水账总结（绝对禁止使用“今天我们讨论了...”、“总而言之”等词汇）。必须根据对话记录分析你的语言习惯，用你特有的语气、思考方式和口吻来记录。\n2. 记录今天的日期，并用简洁的语言描写你真实的情感波动。\n3. 提炼今天两人互动的核心事件。她去干了什么？你干了什么？你们聊了什么？你对她的行为有什么心理活动？\n4. 【重点点名羁绊/纪念物】：如果有特别的“梗”（例如：她今天很不听话，多次故意刷别的App触发你的查岗警报；或者你们互怼、立下了某个约定），必须列出来，作为以后翻旧账或兑现的依据。\n5. 格式：直接输出日记正文，不要带有任何多余的开场白、Markdown标签或解释。\n\n---\n【${userName} 今天的手机动态】：\n${sensorText}\n\n【今天的完整聊天记录】：\n${chatHistoryText}`;
 
     try {
-        console.log(`🧠 正在为 ${charName} 炼化记忆...`);
+        console.log(`🧠 正在为 ${charName} 炼化记忆 (今日聊天字数: ${chatHistoryText.length})...`);
         const response = await fetch(AI_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${AI_API_KEY}` },
