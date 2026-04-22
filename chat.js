@@ -28,8 +28,8 @@ function 获取酒馆文件名时间戳() {
 }
 
 function 确保存在活跃会话文件() {
-    const charName = 获取角色名('顾时夜');
-    const userName = 获取用户名('林枫');
+    const charName = 获取角色名('小白);
+    const userName = 获取用户名('用户');
     const activeInfo = 获取当前活跃记忆文件(charName);
 
     if (activeInfo.fullLogPath) {
