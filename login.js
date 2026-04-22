@@ -120,7 +120,7 @@ async function startLogin() {
                 if (!fs.existsSync(syncConfPath)) fs.writeFileSync(syncConfPath, JSON.stringify({}));
                 if (!fs.existsSync(ctxConfPath)) fs.writeFileSync(ctxConfPath, JSON.stringify({}));
 
-                console.log(`🎉 账号凭证已安全保存至: ${mainConfPath}`); // 打印绝对路径，让小白看得更放心
+                console.log(`🎉 账号凭证已安全保存至: ${mainConfPath}`); 
                 break;
             }
         } catch (e) {
