@@ -1,0 +1,24 @@
+{
+  "path_mode": "local",
+  "remote_bridge_base_url": "http://127.0.0.1:7860",
+  "wait_time_ms": 7000,
+  "idle_limit_ms": 1800000,
+  "wake_window": {
+    "start_hour": 9,
+    "end_hour": 3
+  },
+  "sensor": {
+    "secret_token": "user_super_secret_666",
+    "port": 7860,
+    "urgent_apps": [],
+    "duplicate_window_ms": 300000,
+    "retention_hours": 24
+  },
+  "backup": {
+    "include_accounts": true,
+    "include_config_json": true,
+    "include_sensor_map_json": true,
+    "include_workspace": true,
+    "include_memory": true
+  }
+}
