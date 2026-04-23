@@ -26,10 +26,14 @@ function 获取酒馆文件名时间戳() {
     const pad = (n) => String(n).padStart(2, '0');
     return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}@${pad(d.getUTCHours())}h${pad(d.getUTCMinutes())}m${pad(d.getUTCSeconds())}s${String(d.getUTCMilliseconds()).padStart(3, '0')}ms`;
 }
-
 function 确保存在活跃会话文件() {
-    const charName = 获取角色名('小白);
-    const userName = 获取用户名('用户');
+    // 🌟 严格从获取真名，不再接受默认参数
+    const charName = 获取角色名();
+    const userName = 获取用户名();
+    
+    // 如果还没设置名字，其实 bot.js 已经拦截了。这里做个二次保险
+    if (!charName || !userName) throw new Error("无法创建记忆文件：未配置角色或用户名");
+
     const activeInfo = 获取当前活跃记忆文件(charName);
 
     if (activeInfo.fullLogPath) {
