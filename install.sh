@@ -70,16 +70,28 @@ MIGRATION_DIR="$BASE_DIR/.zitui_migration_$TIMESTAMP"
     echo "{}" > "$APP_DIR/sensor_map.json"
 }
 
+# 🌟 核心修复：全量初始化工作区模板
 生成默认运行策略() {
+    echo "📂 正在初始化工作区模板与灵魂设定..."
     mkdir -p "$APP_DIR/workspace"
-    [ -f "$APP_DIR/workspace_template/plugin_runtime.json" ] && cp "$APP_DIR/workspace_template/plugin_runtime.json" "$APP_DIR/workspace/plugin_runtime.json"
-    [ -f "$APP_DIR/workspace_template/active_memory.json" ] && cp "$APP_DIR/workspace_template/active_memory.json" "$APP_DIR/workspace/active_memory.json"
+    if [ -d "$APP_DIR/workspace_template" ]; then
+        for f in "$APP_DIR/workspace_template"/*; do
+            if [ -f "$f" ]; then
+                bn=$(basename "$f")
+                # 只有当目标文件不存在时才释放模板，防止覆盖用户已有的自定义设定
+                if [ ! -f "$APP_DIR/workspace/$bn" ]; then
+                    cp "$f" "$APP_DIR/workspace/$bn"
+                    echo "  ✅ 已释放: $bn"
+                fi
+            fi
+        done
+    fi
 }
 
 写入新配置() {
     echo -e "\n📝 [5/6] 正在进入交互式配置向导..."
     echo "==================================================="
-    echo "⚠️ 身份绑定（必填项）"
+    echo "⚠️ 身份绑定（必填项，开启占位符架构核心）"
     echo "==================================================="
     
     while true; do
