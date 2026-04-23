@@ -42,7 +42,7 @@ MIGRATION_DIR="$BASE_DIR/.zitui_migration_$TIMESTAMP"
     复制若存在 "$APP_DIR/config.json" "$MIGRATION_DIR/config.json"
     复制若存在 "$APP_DIR/sensor_map.json" "$MIGRATION_DIR/sensor_map.json"
     复制若存在 "$APP_DIR/ref.jpg" "$MIGRATION_DIR/ref.jpg"
-    复制若存在 "$APP_DIR/luma2api" "$MIGRATION_DIR/luma2api" # 🌟 保护本地反代文件夹
+    复制若存在 "$APP_DIR/luma2api" "$MIGRATION_DIR/luma2api"
 
     if [ -d "$MIGRATION_DIR/accounts" ]; then
         echo "✅ 数据迁移已就绪。"
@@ -78,10 +78,33 @@ MIGRATION_DIR="$BASE_DIR/.zitui_migration_$TIMESTAMP"
 
 写入新配置() {
     echo -e "\n📝 [5/6] 正在进入交互式配置向导..."
-    echo "请根据提示输入相应的 API Key 和参数（直接按回车可跳过/使用默认值除了聊天API都是可选的）。"
+    echo "==================================================="
+    echo "⚠️ 身份绑定（必填项）"
+    echo "==================================================="
+    
+    while true; do
+        read -p "👉 [必填] 请输入 AI 伴侣的名称: " CHAR_NAME < /dev/tty
+        if [ -n "$(echo "$CHAR_NAME" | tr -d ' ')" ]; then
+            break
+        else
+            echo "❌ 角色名称不能为空，请重新输入！"
+        fi
+    done
+
+    while true; do
+        read -p "👉 [必填] 请输入你的名称/称呼: " USER_NAME < /dev/tty
+        if [ -n "$(echo "$USER_NAME" | tr -d ' ')" ]; then
+            break
+        else
+            echo "❌ 用户名称不能为空，请重新输入！"
+        fi
+    done
+
+    echo "==================================================="
+    echo "请根据提示输入相应的 API Key 和参数（除聊天API外均可选，直接回车可跳过）。"
     echo "---------------------------------------------------"
 
-    read -p "👉 [对话] 请输入聊天 AI API 地址，结尾需添加 /v1，不要添加 /chat/completions [默认: http://127.0.0.1:7861/v1]: " CHAT_API_BASE < /dev/tty
+    read -p "👉 [对话] 请输入聊天 AI API 地址 [默认: http://127.0.0.1:7861/v1]: " CHAT_API_BASE < /dev/tty
     CHAT_API_BASE=${CHAT_API_BASE:-"http://127.0.0.1:7861/v1"}
 
     read -p "👉 [对话] 请输入聊天 AI API Key: " CHAT_API_KEY < /dev/tty
@@ -102,7 +125,7 @@ MIGRATION_DIR="$BASE_DIR/.zitui_migration_$TIMESTAMP"
     read -p "👉 [TTS] 请输入 Voice ID: " TTS_VOICE_ID < /dev/tty
 
     echo "---------------------------------------------------"
-    echo "🏠 智能家居 Miio 配置（可选，不使用请直接回车跳过）"
+    echo "🏠 智能家居 Miio 配置（可选）"
     read -p "👉 [Miio] 请输入设备局域网 IP: " MIIO_IP < /dev/tty
     read -p "👉 [Miio] 请输入设备 Token: " MIIO_TOKEN < /dev/tty
 
@@ -110,6 +133,10 @@ MIGRATION_DIR="$BASE_DIR/.zitui_migration_$TIMESTAMP"
 
     cat <<EOF > "$APP_DIR/config.json"
 {
+  "profile": {
+    "char_name": "$CHAR_NAME",
+    "user_name": "$USER_NAME"
+  },
   "chat_llm": { "api_base_url": "$CHAT_API_BASE", "api_key": "$CHAT_API_KEY", "model_name": "$CHAT_MODEL" },
   "services": {
     "image_server_url": "http://127.0.0.1:7862/v1/images/generations",
@@ -182,11 +209,10 @@ mkdir -p accounts workspace Memory
 生成默认运行策略
 [ -f "$APP_DIR/config.json" ] || 写入新配置
 
-# 5. Bashrc 同步更新 (兼容老版本 + 全新定界符架构)
+# 5. Bashrc 同步更新
 BASHRC_FILE="$HOME/.bashrc"
 echo -e "\n🧹 [5/6] 同步开机自启配置..."
 
-# 🗡️ 清理第一阶段：狙击老版本用户的散装残留代码
 sed -i '/wechat-bot/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/voice-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/image-engine/d' "$BASHRC_FILE" 2>/dev/null || true
@@ -195,10 +221,8 @@ sed -i '/memory-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/luma-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/自推 Wechat Bot 开机自启/d' "$BASHRC_FILE" 2>/dev/null || true
 
-# 💣 清理第二阶段：爆破新架构的定界符区块（防重复写入）
 sed -i '/# WECHAT_BOT_START_BEGIN/,/# WECHAT_BOT_START_END/d' "$BASHRC_FILE" 2>/dev/null || true
 
-# 🧱 写入新版结构化定界符代码
 cat <<EOF >> "$BASHRC_FILE"
 # WECHAT_BOT_START_BEGIN
 echo "🤖 正在检查并唤醒TA..."
