@@ -19,7 +19,7 @@ import {
     获取账号目录,
     获取工作区目录,
     获取主配置,
-    获取主配置路径, // 🌟 修复：必须引入它才能保存配置！
+    获取主配置路径,
     获取运行策略,
     获取梦境事件路径,
     获取紧急事件路径,
@@ -29,7 +29,7 @@ import {
     获取用户名
 } from './lib/runtime-config.js';
 
-// 🌟 新增：名字保存函数 (加入了容错机制)
+// 🌟 新增：名字保存函数
 function updateConfigName(type, newName) {
     const cfgPath = 获取主配置路径();
     let cfg = {};
@@ -103,12 +103,9 @@ for (const file of mdFiles) {
 
 // 🌟 2. 动态能力与 FORMAT.md 加载
 const hasMiio = extConfig.miio?.ip && !extConfig.miio.ip.includes("YOUR_");
-
-// 🌟 修复：双重校验！要么有正常的 Gemini Key，要么配置了 Luma 的 realm_id
 const hasImage = (extConfig.image_generation?.api_key && !extConfig.image_generation.api_key.includes("YOUR_")) || 
                  (extConfig.image_generation?.luma_realm_id) || 
                  (extConfig.luma?.realm_id);
-
 const hasVoice = extConfig.tts?.credentials?.some(c => c.appid && !c.appid.includes("YOUR_"));
 
 let ruleIndex = 8;
@@ -402,7 +399,8 @@ async function startBot() {
                         let userUpdated = false;
                         let replyMsgs = [];
 
-                        const charMatch = rawText.match(/\/char\s+([^\n\r]+)/i);
+                        // 🌟 修复：用 [^\/\n\r]+ 精准匹配，遇到斜杠或换行立刻刹车，完美拆分组合指令！
+                        const charMatch = rawText.match(/\/char\s+([^\/\n\r]+)/i);
                         if (charMatch) {
                             const n = charMatch[1].trim();
                             if (n) {
@@ -412,7 +410,7 @@ async function startBot() {
                             }
                         }
 
-                        const userMatch = rawText.match(/\/user\s+([^\n\r]+)/i);
+                        const userMatch = rawText.match(/\/user\s+([^\/\n\r]+)/i);
                         if (userMatch) {
                             const n = userMatch[1].trim();
                             if (n) {
@@ -428,15 +426,15 @@ async function startBot() {
                             continue;
                         }
 
-                        // 如果用户只是发了个 /char 或者只有空格，拦截并友好提示
-                        if (rawText.trim() === '/char' || rawText.trim() === '/user') {
-                            await sendMessageWeixin({ to: userId, text: "❌ 名字不能为空哦！请连着名字一起发，例如：\n/char 顾时夜", opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
+                        // 如果没更新成功，但确实是指令开头，说明格式错了（比如没加空格，或者没写名字）
+                        if (rawText.trim().startsWith('/char') || rawText.trim().startsWith('/user')) {
+                            await sendMessageWeixin({ to: userId, text: "❌ 名字提取失败或不能为空！\n请连着名字一起发（中间要有空格），例如：\n/char 小白 /user 用户", opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
                             continue;
                         }
 
                         // 🌟 新用户拦截逻辑
                         if (!charName || !userName) {
-                            const guide = `👋 欢迎使用自推 WechatAI！\n\n检测到你尚未初始化身份。为了创建专属记忆文件，请发送以下指令：\n\n1️⃣ 设置 AI 名字：/char 名字\n2️⃣ 设置你的名字：/user 名字\n\n(支持一次性发送，例如：\n/char 顾时夜\n/user 林枫)\n\n设置完成后，我会正式苏醒。`;
+                            const guide = `👋 欢迎使用自推 WechatAI！\n\n检测到你尚未初始化身份。为了创建专属记忆文件，请发送以下指令：1️⃣ 设置 AI 名字：/char 名字\n2️⃣ 设置你的名字：/user 名字\n\n(支持一次性发送，例如：/char 小白 /user 用户)\n\n设置完成后，我会正式苏醒。`;
                             await sendMessageWeixin({ to: userId, text: guide, opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
                             continue;
                         }
