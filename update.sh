@@ -14,7 +14,7 @@ cp -r Memory "$BACKUP_DIR/" 2>/dev/null || true
 cp config.json "$BACKUP_DIR/" 2>/dev/null || true
 cp sensor_map.json "$BACKUP_DIR/" 2>/dev/null || true
 cp ref.jpg "$BACKUP_DIR/" 2>/dev/null || true
-cp -r luma2api "$BACKUP_DIR/" 2>/dev/null || true # 🌟 备份反代文件夹
+cp -r luma2api "$BACKUP_DIR/" 2>/dev/null || true
 
 # 2. 拉取更新
 echo -e "\n🌪️ [2/6] 正在拉取远端最新文件..."
@@ -31,7 +31,6 @@ echo -e "\n💖 [3/6] 正在重新注入数据..."
 rm -rf accounts/ workspace/ Memory/
 cp -r "$BACKUP_DIR"/* ./ 2>/dev/null || true
 
-# 智能补齐模板文件
 if [ -d "workspace_template" ]; then
     for f in workspace_template/*; do
         bn=$(basename "$f")
@@ -43,12 +42,11 @@ fi
 echo -e "\n⚙️ [4/6] 重新编译 Node.js 逻辑..."
 npm install --no-optional && npm run build
 
-# 5. Bashrc 同步更新 (兼容老版本 + 全新定界符架构)
+# 5. Bashrc 同步更新
 BASHRC_FILE="$HOME/.bashrc"
 APP_DIR=$(pwd)
 echo -e "\n🧹 [5/6] 同步开机自启配置..."
 
-# 🗡️ 清理第一阶段：狙击老版本用户的散装残留代码
 sed -i '/wechat-bot/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/voice-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/image-engine/d' "$BASHRC_FILE" 2>/dev/null || true
@@ -56,11 +54,8 @@ sed -i '/sensor-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/memory-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/luma-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/自推 Wechat Bot 开机自启/d' "$BASHRC_FILE" 2>/dev/null || true
-
-# 💣 清理第二阶段：爆破新架构的定界符区块（防重复写入）
 sed -i '/# WECHAT_BOT_START_BEGIN/,/# WECHAT_BOT_START_END/d' "$BASHRC_FILE" 2>/dev/null || true
 
-# 🧱 写入新版结构化定界符代码
 cat <<EOF >> "$BASHRC_FILE"
 # WECHAT_BOT_START_BEGIN
 echo "🤖 正在检查并唤醒TA..."
@@ -95,6 +90,12 @@ echo -e "\n🔄 [6/6] 重启后台引擎..."
 pm2 restart all || true
 pm2 save
 
+echo "==================================================="
+echo "⚠️ 【极其重要】架构升级提醒"
+echo "由于底层架构全面升级为 {{char}} 和 {{user}} 占位符，预设中不再硬编码名字。"
+echo "若尚未在config.json设置过名字请前往 config.json 或【酒馆前端桥接插件】的“基础配置”中，"
+echo "重新设置并保存一次「自推角色名称」和「你的名称」！"
+echo "config.json未配置名字的情况下，机器人在微信中将进入新用户引导模式并拒绝聊天。"
 echo "==================================================="
 echo "🎉 更新圆满完成！"
 echo "==================================================="
