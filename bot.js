@@ -24,7 +24,20 @@ import {
     获取紧急事件路径,
     获取传感映射路径,
     当前是否处于唤醒时段,
+    获取角色名, 
+    获取用户名
 } from './lib/runtime-config.js';
+
+// 🌟 新增：名字保存函数
+function updateConfigName(type, newName) {
+    const cfgPath = 获取主配置路径();
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    cfg.profile = cfg.profile || {};
+    if (type === 'char') cfg.profile.char_name = newName;
+    if (type === 'user') cfg.profile.user_name = newName;
+    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+    return true;
+}
 
 const BASE_DIR = 获取基础目录();
 const ACCOUNT_DIR = 获取账号目录();
@@ -71,17 +84,23 @@ if (fs.existsSync(API_CONF_PATH)) {
 // 🌟 1. 静态设定加载 (AGENTS, IDENTITY, USER, MEMORY, SOUL)
 const mdFiles = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md'];
 let SYSTEM_PROMPT = "";
+const current_char = 获取角色名() || "AI";
+const current_user = 获取用户名() || "User";
+
 for (const file of mdFiles) {
     const filePath = path.join(WORKSPACE_DIR, file);
     if (fs.existsSync(filePath)) {
-        SYSTEM_PROMPT += `\n\n=== ${file} ===\n` + fs.readFileSync(filePath, 'utf-8');
+        let content = fs.readFileSync(filePath, 'utf-8');
+        // 🌟 动态替换占位符
+        content = content.replace(/\{\{char\}\}/gi, current_char).replace(/\{\{user\}\}/gi, current_user);
+        SYSTEM_PROMPT += `\n\n=== ${file} ===\n` + content;
     }
 }
 
 // 🌟 2. 动态能力与 FORMAT.md 加载
 const hasMiio = extConfig.miio?.ip && !extConfig.miio.ip.includes("YOUR_");
 
-// 🌟 修复：双重校验！要么有正常的 Gemini Key，要么配置了 Luma 的 realm_id (兼容放于 image_generation 或 luma 节点下)
+// 🌟 修复：双重校验！要么有正常的 Gemini Key，要么配置了 Luma 的 realm_id
 const hasImage = (extConfig.image_generation?.api_key && !extConfig.image_generation.api_key.includes("YOUR_")) || 
                  (extConfig.image_generation?.luma_realm_id) || 
                  (extConfig.luma?.realm_id);
@@ -230,9 +249,6 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         currentContext.push({ role: "system", content: proactivePrompt });
     }
 
-    // ====================================================================================
-    // 🌟 DEBUG 模块：脱敏打印 (防止刷屏，只看重点)
-    // ====================================================================================
     const debugContext = currentContext.map(msg => {
         if (msg.content === SYSTEM_PROMPT) {
             return { role: msg.role, content: "[静态系统设定：已隐藏 AGENTS.md / IDENTITY.md / FORMAT.md 等文件的注入内容]" };
@@ -249,7 +265,6 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
     console.log(`\n================= 🚀 [DEBUG: 发给 LLM 的完整上下文阵列] 🚀 =================`);
     console.log(JSON.stringify(debugContext, null, 2));
     console.log(`==============================================================================\n`);
-    // ====================================================================================
 
     try {
         console.log(`\n🧠 AI 正在动用多模态感官处理信息 (模型: ${AI_MODEL})...`);
@@ -265,7 +280,6 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         const data = await response.json();
         const rawReply = data.choices[0].message.content.trim();
         
-        // 🌟 核心解析：精准切割 <thinking> 和 <reply>
         let thoughts = "";
         let replyContent = rawReply;
         
@@ -279,7 +293,6 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
             replyContent = rawReply.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
         }
 
-        // 🌟 清洗多媒体标签，准备写入 Memory (纯文本化)
         let cleanReply = replyContent;
         cleanReply = cleanReply.replace(/<pic[^>]*>([\s\S]*?)<\/pic>/gi, "[发送了一张照片/多媒体]");
         cleanReply = cleanReply.replace(/<pic prompt>([\s\S]*?)<\/pic prompt>/gi, "[发送了一张照片/多媒体]");
@@ -290,14 +303,12 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         if (thoughts) console.log(`\n💭 [内心独白]: ${thoughts}`);
         console.log(`📝 [准备发送]: ${replyContent.slice(0, 80)}...`);
 
-        // 🌟 提交给 chat.js 进行单轨落盘
         let logUserText = textContent;
         if (!logUserText && proactivePrompt) logUserText = "[系统触发]";
         saveInteraction(logUserText, thoughts, cleanReply);
 
         return replyContent; 
         } catch (err) {
-        // 🌟 明确指出是不是超时导致的
         if (err.name === 'TimeoutError' || err.name === 'AbortError') {
             console.error(`\n❌ AI 请求超时 (超过 5 分钟未返回数据，可能是 Luma 生图太慢导致被掐断)`);
         } else {
@@ -333,7 +344,6 @@ async function processBuffer(userId) {
         await sendMessageWeixin({
             to: userId,
             text: aiReply,
-            // 🌟 还原回 15 秒，避免阻塞底层连接
             opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: cToken, timeoutMs: 15000 }
         });
     }
@@ -371,13 +381,41 @@ async function startBot() {
                 syncCursor = data.get_updates_buf;
                 saveSyncCursor(syncCursor);
             }
-
+            
+            // 🌟 修复嵌套层级：原汁原味的单层循环处理
             if (data.msgs && data.msgs.length > 0) {
                 for (const msg of data.msgs) {
                     const userId = msg.from_user_id;
                     if (msg.context_token) saveContextToken(userId, msg.context_token);
 
+                    const charName = 获取角色名();
+                    const userName = 获取用户名();
+
                     if (msg.message_type === 1 && msg.item_list) {
+                        let rawText = msg.item_list[0]?.text_item?.text || "";
+
+                        // 🌟 指令拦截：/char 和 /user
+                        if (rawText.startsWith('/char ')) {
+                            const n = rawText.replace('/char ', '').trim();
+                            updateConfigName('char', n);
+                            await sendMessageWeixin({ to: userId, text: `✅ 设定成功！AI 角色名已更新为：${n}\n请重启 PM2 进程以生效。`, opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
+                            continue;
+                        }
+                        if (rawText.startsWith('/user ')) {
+                            const n = rawText.replace('/user ', '').trim();
+                            updateConfigName('user', n);
+                            await sendMessageWeixin({ to: userId, text: `✅ 设定成功！用户称呼已更新为：${n}\n请重启 PM2 进程以生效。`, opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
+                            continue;
+                        }
+
+                        // 🌟 新用户拦截逻辑
+                        if (!charName || !userName) {
+                            const guide = `👋 欢迎使用自推 WechatAI！\n\n检测到你尚未初始化身份。为了创建专属记忆文件，请发送以下指令：\n\n1️⃣ 设置 AI 名字：/char 名字\n2️⃣ 设置你的名字：/user 名字\n\n设置完成后，我会正式苏醒。`;
+                            await sendMessageWeixin({ to: userId, text: guide, opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
+                            continue;
+                        }
+
+                        // 🌟 下方是完全保留的原版 Buffer 消息解析逻辑！
                         lastInteractionTime = Date.now();
                         
                         if (!userMessageBuffers[userId]) userMessageBuffers[userId] = [];
@@ -488,7 +526,6 @@ setInterval(async () => {
         if (aiReply) {
             await sendMessageWeixin({
                 to: MY_USER_ID, text: aiReply,
-                // 🌟 还原回 15 秒
                 opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: contextTokens[MY_USER_ID], timeoutMs: 15000 }
             });
         }
@@ -533,7 +570,6 @@ setInterval(async () => {
         if (aiReply) {
             await sendMessageWeixin({
                 to: MY_USER_ID, text: aiReply,
-                // 🌟 还原回 15 秒
                 opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: contextTokens[MY_USER_ID], timeoutMs: 15000 }
             });
         }
