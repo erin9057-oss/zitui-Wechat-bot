@@ -19,6 +19,7 @@ import {
     获取账号目录,
     获取工作区目录,
     获取主配置,
+    获取主配置路径, // 🌟 修复：必须引入它才能保存配置！
     获取运行策略,
     获取梦境事件路径,
     获取紧急事件路径,
@@ -28,10 +29,13 @@ import {
     获取用户名
 } from './lib/runtime-config.js';
 
-// 🌟 新增：名字保存函数
+// 🌟 新增：名字保存函数 (加入了容错机制)
 function updateConfigName(type, newName) {
     const cfgPath = 获取主配置路径();
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    let cfg = {};
+    if (fs.existsSync(cfgPath)) {
+        cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    }
     cfg.profile = cfg.profile || {};
     if (type === 'char') cfg.profile.char_name = newName;
     if (type === 'user') cfg.profile.user_name = newName;
@@ -382,7 +386,6 @@ async function startBot() {
                 saveSyncCursor(syncCursor);
             }
             
-            // 🌟 修复嵌套层级：原汁原味的单层循环处理
             if (data.msgs && data.msgs.length > 0) {
                 for (const msg of data.msgs) {
                     const userId = msg.from_user_id;
@@ -394,23 +397,46 @@ async function startBot() {
                     if (msg.message_type === 1 && msg.item_list) {
                         let rawText = msg.item_list[0]?.text_item?.text || "";
 
-                        // 🌟 指令拦截：/char 和 /user
-                        if (rawText.startsWith('/char ')) {
-                            const n = rawText.replace('/char ', '').trim();
-                            updateConfigName('char', n);
-                            await sendMessageWeixin({ to: userId, text: `✅ 设定成功！AI 角色名已更新为：${n}\n请重启 PM2 进程以生效。`, opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
+                        // 🌟 指令超级拦截器：支持单次或合并输入，防手滑空名字
+                        let charUpdated = false;
+                        let userUpdated = false;
+                        let replyMsgs = [];
+
+                        const charMatch = rawText.match(/\/char\s+([^\n\r]+)/i);
+                        if (charMatch) {
+                            const n = charMatch[1].trim();
+                            if (n) {
+                                updateConfigName('char', n);
+                                charUpdated = true;
+                                replyMsgs.push(`✅ AI 角色名已更新为：${n}`);
+                            }
+                        }
+
+                        const userMatch = rawText.match(/\/user\s+([^\n\r]+)/i);
+                        if (userMatch) {
+                            const n = userMatch[1].trim();
+                            if (n) {
+                                updateConfigName('user', n);
+                                userUpdated = true;
+                                replyMsgs.push(`✅ 用户称呼已更新为：${n}`);
+                            }
+                        }
+
+                        if (charUpdated || userUpdated) {
+                            replyMsgs.push("请在 Termux 终端执行 pm2 restart wechat-bot 即可生效！");
+                            await sendMessageWeixin({ to: userId, text: replyMsgs.join('\n\n'), opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
                             continue;
                         }
-                        if (rawText.startsWith('/user ')) {
-                            const n = rawText.replace('/user ', '').trim();
-                            updateConfigName('user', n);
-                            await sendMessageWeixin({ to: userId, text: `✅ 设定成功！用户称呼已更新为：${n}\n请重启 PM2 进程以生效。`, opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
+
+                        // 如果用户只是发了个 /char 或者只有空格，拦截并友好提示
+                        if (rawText.trim() === '/char' || rawText.trim() === '/user') {
+                            await sendMessageWeixin({ to: userId, text: "❌ 名字不能为空哦！请连着名字一起发，例如：\n/char 顾时夜", opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
                             continue;
                         }
 
                         // 🌟 新用户拦截逻辑
                         if (!charName || !userName) {
-                            const guide = `👋 欢迎使用自推 WechatAI！\n\n检测到你尚未初始化身份。为了创建专属记忆文件，请发送以下指令：\n\n1️⃣ 设置 AI 名字：/char 名字\n2️⃣ 设置你的名字：/user 名字\n\n设置完成后，我会正式苏醒。`;
+                            const guide = `👋 欢迎使用自推 WechatAI！\n\n检测到你尚未初始化身份。为了创建专属记忆文件，请发送以下指令：\n\n1️⃣ 设置 AI 名字：/char 名字\n2️⃣ 设置你的名字：/user 名字\n\n(支持一次性发送，例如：\n/char 顾时夜\n/user 林枫)\n\n设置完成后，我会正式苏醒。`;
                             await sendMessageWeixin({ to: userId, text: guide, opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
                             continue;
                         }
