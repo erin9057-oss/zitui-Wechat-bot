@@ -12,8 +12,8 @@ import crypto from 'crypto';
 import { sendMessageWeixin } from '/data/data/com.termux/files/home/WechatAI/openclaw-weixin/dist/src/messaging/send.js';
 import { downloadMediaFromItem } from '/data/data/com.termux/files/home/WechatAI/openclaw-weixin/dist/src/media/media-download.js';
 
-// 🌟 引入全新单轨记忆引擎
-import { getChatContext, saveInteraction } from './chat.js';
+import { getChatContext, getLatestDiaries, saveInteraction, getCurrentSceneInfo } from './chat.js';
+import { db, getEmbedding } from './vector_store.js';
 import {
     获取基础目录,
     获取账号目录,
@@ -29,7 +29,6 @@ import {
     获取用户名
 } from './lib/runtime-config.js';
 
-// 🌟 新增：名字保存函数
 function updateConfigName(type, newName) {
     const cfgPath = 获取主配置路径();
     let cfg = {};
@@ -85,7 +84,6 @@ if (fs.existsSync(API_CONF_PATH)) {
     AI_PARAMS = aiConfig.agents?.defaults?.params || {};
 }
 
-// 🌟 1. 静态设定加载 (AGENTS, IDENTITY, USER, MEMORY, SOUL)
 const mdFiles = ['AGENTS.md', 'IDENTITY.md', 'USER.md', 'MEMORY.md', 'SOUL.md'];
 let SYSTEM_PROMPT = "";
 const current_char = 获取角色名() || "AI";
@@ -95,13 +93,11 @@ for (const file of mdFiles) {
     const filePath = path.join(WORKSPACE_DIR, file);
     if (fs.existsSync(filePath)) {
         let content = fs.readFileSync(filePath, 'utf-8');
-        // 🌟 动态替换占位符
         content = content.replace(/\{\{char\}\}/gi, current_char).replace(/\{\{user\}\}/gi, current_user);
         SYSTEM_PROMPT += `\n\n=== ${file} ===\n` + content;
     }
 }
 
-// 🌟 2. 动态能力与 FORMAT.md 加载
 const hasMiio = extConfig.miio?.ip && !extConfig.miio.ip.includes("YOUR_");
 const hasImage = (extConfig.image_generation?.api_key && !extConfig.image_generation.api_key.includes("YOUR_")) || 
                  (extConfig.image_generation?.luma_realm_id) || 
@@ -196,20 +192,62 @@ function saveContextToken(userId, token) {
     fs.writeFileSync(CTX_CONF_PATH, JSON.stringify(contextTokens), 'utf-8');
 }
 
-// 🌟 全新 callAI 引擎：剧本注入 + thinking/reply 解析分离 + DEBUG 打印
 async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = null) {
-    
     let currentContext = [{ role: "system", content: SYSTEM_PROMPT }];
     
-    // 🌟 核心修复：打破大模型内部的 UTC 幻觉，每次强制注入当前北京时间！
     const bjNow = new Date(Date.now() + 8 * 60 * 60 * 1000);
     const bjTimeStr = bjNow.toISOString().replace('T', ' ').substring(0, 16);
     currentContext.push({ role: "system", content: `【系统实时时钟】：当前北京时间为 ${bjTimeStr}` });
 
-    // 注入剧本历史 (从 chat.js 提取)
-    currentContext = currentContext.concat(getChatContext());
+    // 🌟 读取动态上下文配置，用于卡住检索的规模
+    const runtimeCfg = 获取运行策略();
+    const chatCtxCfg = runtimeCfg.chat_context || { recall_scenes: 3, recall_diaries: 3 };
 
-    // 读取最新的 24 小时手机动态 (Sensor) 并作为 System 塞进去
+    let ragContext = [];
+    const { currentSceneTitle, currentShifts, currentSceneId } = getCurrentSceneInfo();
+    
+    if (textContent || proactivePrompt) {
+        const inputStr = textContent || "[系统触发的隐形指令]";
+        const queryText = `[当前情景: ${currentSceneTitle}] 用户输入: ${inputStr}`;
+        
+        console.log(`\n🔍 [RAG 检索] 正在构建记忆查询向量...`);
+        const queryVector = await getEmbedding(queryText);
+        
+        if (queryVector) {
+            const topDiaries = db.search(queryVector, currentShifts, 'diary', chatCtxCfg.recall_diaries);
+            let topScenes = db.search(queryVector, currentShifts, 'scene', chatCtxCfg.recall_scenes + 1); 
+            
+            if (currentSceneId) {
+                topScenes = topScenes.filter(s => s.id !== currentSceneId);
+            }
+            topScenes = topScenes.slice(0, chatCtxCfg.recall_scenes);
+            
+            if (topDiaries.length > 0) {
+                ragContext.push({ role: 'system', content: `【潜意识涌动：核心日记回忆】\n` + topDiaries.map(d => d.text).join('\n\n') });
+                topDiaries.forEach(d => db.markAccessed(d.id));
+            }
+            if (topScenes.length > 0) {
+                ragContext.push({ role: 'system', content: `【潜意识涌动：似曾相识的情境片段】\n` + topScenes.map(s => s.text).join('\n\n') });
+                topScenes.forEach(s => db.markAccessed(s.id));
+            }
+            if (topDiaries.length > 0 || topScenes.length > 0) {
+                db.saveDB(); 
+                console.log(`✅ [RAG 检索] 成功召回 ${topDiaries.length} 篇日记与 ${topScenes.length} 个历史场景并注入潜意识。`);
+            }
+        } else {
+            // 🌟 FALLBACK：如果 API 没配或者挂了，兜底直接硬拉最新的几篇日记
+            if (chatCtxCfg.recall_diaries > 0) {
+                const fallbackDiaries = getLatestDiaries(chatCtxCfg.recall_diaries);
+                if (fallbackDiaries.length > 0) {
+                    ragContext.push({ role: 'system', content: `【潜意识涌动：近期核心日记回忆】\n` + fallbackDiaries.join('\n\n') });
+                }
+            }
+            console.log(`⚠️ [RAG 降级] 未配置向量 API 或请求失败，已降级为仅注入最近 ${chatCtxCfg.recall_diaries} 篇日记。`);
+        }
+    }
+
+    currentContext = currentContext.concat(ragContext);
+
     try {
         const DB_PATH = path.join(WORKSPACE_DIR, 'dream_events.json');
         if (fs.existsSync(DB_PATH)) {
@@ -222,7 +260,8 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         }
     } catch(e) {}
 
-    // 处理当轮用户输入/隐形系统指令
+    currentContext = currentContext.concat(getChatContext());
+
     let contentArray = [];
     if (textContent) contentArray.push({ type: "text", text: textContent });
     for (const mediaPath of mediaPaths) {
@@ -252,7 +291,7 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
 
     const debugContext = currentContext.map(msg => {
         if (msg.content === SYSTEM_PROMPT) {
-            return { role: msg.role, content: "[静态系统设定：已隐藏 AGENTS.md / IDENTITY.md / FORMAT.md 等文件的注入内容]" };
+            return { role: msg.role, content: "[静态系统设定：已隐藏 AGENTS.md / IDENTITY.md 等文件的注入内容]" };
         }
         if (Array.isArray(msg.content)) {
             const safeContent = msg.content.map(item => {
@@ -284,8 +323,26 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         let thoughts = "";
         let replyContent = rawReply;
         
+        let sceneData = { action: 'continue' };
+
         const thinkMatch = rawReply.match(/<thinking>([\s\S]*?)<\/thinking>/i);
         if (thinkMatch) thoughts = thinkMatch[1].trim();
+
+        const sceneMatches = [...rawReply.matchAll(/<scene_eval>([\s\S]*?)<\/scene_eval>/gi)];
+        if (sceneMatches.length > 0) {
+            try {
+                let sceneStr = sceneMatches[sceneMatches.length - 1][1].replace(/```json/g, '').replace(/```/g, '').trim();
+                sceneData = JSON.parse(sceneStr);
+                
+                const act = sceneData.action === 'new' ? `✨新场景[${sceneData.title}]` : '➡️场景延续';
+                const zLogs = sceneData.zeigarnik?.join(' | ') || '无';
+                const sLogs = sceneData.salient?.join(' | ') || '无';
+                
+                console.log(`\n📊 [RAG情景刻录] \n  - 动作: ${act}\n  - 悬念: ${zLogs}\n  - 显著物: ${sLogs}`);
+            } catch (e) {
+                console.log(`\n⚠️ [场景解析失败]:`, e.message);
+            }
+        }
 
         const replyMatches = [...rawReply.matchAll(/<reply>([\s\S]*?)<\/reply>/gi)];
         if (replyMatches.length > 0) {
@@ -299,6 +356,7 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         cleanReply = cleanReply.replace(/<pic prompt>([\s\S]*?)<\/pic prompt>/gi, "[发送了一张照片/多媒体]");
         cleanReply = cleanReply.replace(/<voice>([\s\S]*?)<\/voice>/gi, "$1");
         cleanReply = cleanReply.replace(/\[物理:开灯\]|\[物理:关灯\]|<开灯>|<关灯>/g, "");
+        cleanReply = cleanReply.replace(/<scene_eval>[\s\S]*?<\/scene_eval>/gi, ""); 
         cleanReply = cleanReply.trim();
 
         if (thoughts) console.log(`\n💭 [内心独白]: ${thoughts}`);
@@ -306,12 +364,13 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
 
         let logUserText = textContent;
         if (!logUserText && proactivePrompt) logUserText = "[系统触发]";
-        saveInteraction(logUserText, thoughts, cleanReply);
+        
+        saveInteraction(logUserText, thoughts, cleanReply, sceneData);
 
-        return replyContent; 
-        } catch (err) {
+        return cleanReply; 
+    } catch (err) {
         if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-            console.error(`\n❌ AI 请求超时 (超过 5 分钟未返回数据，可能是 Luma 生图太慢导致被掐断)`);
+            console.error(`\n❌ AI 请求超时 (超过 5 分钟未返回数据)`);
         } else {
             console.error(`\n❌ AI 请求失败:`, err.message);
         }
@@ -362,7 +421,7 @@ async function startBot() {
         try { syncCursor = JSON.parse(fs.readFileSync(SYNC_CONF_PATH, 'utf-8')).get_updates_buf || ""; } catch (e) {}
     }
 
-    console.log("🚀 独立网关 (沉浸剧本记忆版) 已启动...");
+    console.log("🚀 独立网关 (沉浸剧本记忆+RAG向量版) 已启动...");
 
     while (true) {
         try {
@@ -394,12 +453,10 @@ async function startBot() {
                     if (msg.message_type === 1 && msg.item_list) {
                         let rawText = msg.item_list[0]?.text_item?.text || "";
 
-                        // 🌟 指令超级拦截器：支持单次或合并输入，防手滑空名字
                         let charUpdated = false;
                         let userUpdated = false;
                         let replyMsgs = [];
 
-                        // 🌟 修复：用 [^\/\n\r]+ 精准匹配，遇到斜杠或换行立刻刹车，完美拆分组合指令！
                         const charMatch = rawText.match(/\/char\s+([^\/\n\r]+)/i);
                         if (charMatch) {
                             const n = charMatch[1].trim();
@@ -426,20 +483,17 @@ async function startBot() {
                             continue;
                         }
 
-                        // 如果没更新成功，但确实是指令开头，说明格式错了（比如没加空格，或者没写名字）
                         if (rawText.trim().startsWith('/char') || rawText.trim().startsWith('/user')) {
                             await sendMessageWeixin({ to: userId, text: "❌ 名字提取失败或不能为空！\n请连着名字一起发（中间要有空格），例如：\n/char 小白 /user 用户", opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
                             continue;
                         }
 
-                        // 🌟 新用户拦截逻辑
                         if (!charName || !userName) {
                             const guide = `👋 欢迎使用自推 WechatAI！\n\n检测到你尚未初始化身份。为了创建专属记忆文件，请发送以下指令：1️⃣ 设置 AI 名字：/char 名字\n2️⃣ 设置你的名字：/user 名字\n\n(支持一次性发送，例如：/char 小白 /user 用户)\n\n设置完成后，我会正式苏醒。`;
                             await sendMessageWeixin({ to: userId, text: guide, opts: { baseUrl: WECHAT_BASE_URL, token: WECHAT_TOKEN, contextToken: msg.context_token } });
                             continue;
                         }
 
-                        // 🌟 下方是完全保留的原版 Buffer 消息解析逻辑！
                         lastInteractionTime = Date.now();
                         
                         if (!userMessageBuffers[userId]) userMessageBuffers[userId] = [];
@@ -506,7 +560,6 @@ async function startBot() {
     }
 }
 
-// 🌟 半小时闲置主动关怀引擎
 setInterval(async () => {
     const runtimeConfig = 获取运行策略();
     const IDLE_LIMIT = Number(runtimeConfig.idle_limit_ms ?? 30 * 60 * 1000);
@@ -556,7 +609,6 @@ setInterval(async () => {
     }
 }, 60000);
 
-// 🌟 3秒极速查岗反射弧
 setInterval(async () => {
     if (isThinking[MY_USER_ID]) return; 
 
