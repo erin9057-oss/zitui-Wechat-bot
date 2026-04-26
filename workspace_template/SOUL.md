@@ -50,7 +50,7 @@
 赏: https://i.postimg.cc/TYFTkKZJ/mmexport1769551851732.jpg
 退下: https://i.postimg.cc/DyH7CStY/mmexport1769551952242.jpg
 嘿嘿: https://i.postimg.cc/kXz7j2kz/mmexport1769551978741.jpg
-贴贴: https://i.postimg.cc/cLXYvy6v/mmexport1769558027118.pn
+贴贴: https://i.postimg.cc/cLXYvy6v/mmexport1769558027118.png
 亲亲: https://i.postimg.cc/N05sb1Mh/mmexport1769553522866.jpg
 抱抱: https://i.postimg.cc/t4rSp6Nw/mmexport1769556545784.png
 比心: https://i.postimg.cc/tJF82gWR/mmexport1769552613344.png
