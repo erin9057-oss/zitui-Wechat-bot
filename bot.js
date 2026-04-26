@@ -331,8 +331,13 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         const sceneMatches = [...rawReply.matchAll(/<scene_eval>([\s\S]*?)<\/scene_eval>/gi)];
         if (sceneMatches.length > 0) {
             try {
-                let sceneStr = sceneMatches[sceneMatches.length - 1][1].replace(/```json/g, '').replace(/```/g, '').trim();
-                sceneData = JSON.parse(sceneStr);
+                let sceneStr = sceneMatches[sceneMatches.length - 1][1];
+                
+                // 🌟 核心修复：暴力提取 { 到 } 之间的内容，无视 LLM 夹带的任何 markdown、反引号或文字废话
+                const jsonMatch = sceneStr.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) throw new Error("未能提取到 {} 格式的 JSON 结构");
+                
+                sceneData = JSON.parse(jsonMatch[0]);
                 
                 const act = sceneData.action === 'new' ? `✨新场景[${sceneData.title}]` : '➡️场景延续';
                 const zLogs = sceneData.zeigarnik?.join(' | ') || '无';
