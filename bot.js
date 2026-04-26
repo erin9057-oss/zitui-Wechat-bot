@@ -199,7 +199,6 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
     const bjTimeStr = bjNow.toISOString().replace('T', ' ').substring(0, 16);
     currentContext.push({ role: "system", content: `【系统实时时钟】：当前北京时间为 ${bjTimeStr}` });
 
-    // 🌟 读取动态上下文配置，用于卡住检索的规模
     const runtimeCfg = 获取运行策略();
     const chatCtxCfg = runtimeCfg.chat_context || { recall_scenes: 3, recall_diaries: 3 };
 
@@ -223,11 +222,11 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
             topScenes = topScenes.slice(0, chatCtxCfg.recall_scenes);
             
             if (topDiaries.length > 0) {
-                ragContext.push({ role: 'system', content: `【潜意识涌动：核心日记回忆】\n` + topDiaries.map(d => d.text).join('\n\n') });
+                ragContext.push({ role: 'system', content: `【回忆起的你过去的日记】\n` + topDiaries.map(d => d.text).join('\n\n') });
                 topDiaries.forEach(d => db.markAccessed(d.id));
             }
             if (topScenes.length > 0) {
-                ragContext.push({ role: 'system', content: `【潜意识涌动：似曾相识的情境片段】\n` + topScenes.map(s => s.text).join('\n\n') });
+                ragContext.push({ role: 'system', content: `【回忆起的似曾相识的情境片段】\n` + topScenes.map(s => s.text).join('\n\n') });
                 topScenes.forEach(s => db.markAccessed(s.id));
             }
             if (topDiaries.length > 0 || topScenes.length > 0) {
@@ -235,11 +234,10 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
                 console.log(`✅ [RAG 检索] 成功召回 ${topDiaries.length} 篇日记与 ${topScenes.length} 个历史场景并注入潜意识。`);
             }
         } else {
-            // 🌟 FALLBACK：如果 API 没配或者挂了，兜底直接硬拉最新的几篇日记
             if (chatCtxCfg.recall_diaries > 0) {
                 const fallbackDiaries = getLatestDiaries(chatCtxCfg.recall_diaries);
                 if (fallbackDiaries.length > 0) {
-                    ragContext.push({ role: 'system', content: `【潜意识涌动：近期核心日记回忆】\n` + fallbackDiaries.join('\n\n') });
+                    ragContext.push({ role: 'system', content: `【近期日记回忆】\n` + fallbackDiaries.join('\n\n') });
                 }
             }
             console.log(`⚠️ [RAG 降级] 未配置向量 API 或请求失败，已降级为仅注入最近 ${chatCtxCfg.recall_diaries} 篇日记。`);
@@ -264,19 +262,35 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
 
     let contentArray = [];
     if (textContent) contentArray.push({ type: "text", text: textContent });
+    
     for (const mediaPath of mediaPaths) {
         try {
             if (!fs.existsSync(mediaPath)) continue;
-            const ext = path.extname(mediaPath).toLowerCase();
-            const b64 = fs.readFileSync(mediaPath).toString('base64');
-            if (['.wav', '.mp3', '.m4a', '.amr'].includes(ext)) {
+            let ext = path.extname(mediaPath).toLowerCase();
+            const fileBuf = fs.readFileSync(mediaPath);
+            const b64 = fileBuf.toString('base64');
+            const headerHex = fileBuf.length > 4 ? fileBuf.subarray(0, 4).toString('hex').toUpperCase() : '';
+
+            if (ext === '' || ext === '.bin') {
+                if (headerHex.startsWith('FFD8FF')) ext = '.jpg';
+                else if (headerHex.startsWith('89504E47')) ext = '.png';
+                else if (headerHex.startsWith('47494638')) ext = '.gif';
+                else if (headerHex.startsWith('52494646')) ext = '.wav';
+                else ext = '.jpg'; 
+            }
+
+            if (['.wav', '.mp3', '.m4a', '.amr', '.silk'].includes(ext)) {
                 let mimeType = ext === '.wav' ? 'audio/wav' : `audio/${ext.replace('.', '')}`;
                 contentArray.push({ type: "image_url", image_url: { url: `data:${mimeType};base64,${b64}` } });
-            } else if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+                console.log(`🎤 [多模态听觉] 成功加载音频附件送入大模型，格式: ${mimeType}, 字节数: ${b64.length}`);
+            } else {
                 let mime = ext === '.jpg' ? 'jpeg' : ext.replace('.', '');
                 contentArray.push({ type: "image_url", image_url: { url: `data:image/${mime};base64,${b64}` } });
+                console.log(`👁️ [多模态视觉] 成功加载图片附件送入大模型，推测格式: ${mime}, 字节数: ${b64.length}`);
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error("❌ 读取本地附件失败:", e.message);
+        }
     }
 
     let finalContent = null;
@@ -288,21 +302,27 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
     if (proactivePrompt) {
         currentContext.push({ role: "system", content: proactivePrompt });
     }
-
+        // 🌟 完整上下文打印 (仅隐藏静态 MD 预设和会导致终端卡死的 Base64，保留所有向量、动态上下文、手机监控的完整拼接原貌)
     const debugContext = currentContext.map(msg => {
+        // 1. 隐藏基础设定
         if (msg.content === SYSTEM_PROMPT) {
             return { role: msg.role, content: "[静态系统设定：已隐藏 AGENTS.md / IDENTITY.md 等文件的注入内容]" };
         }
+        // 2. 隐藏会导致终端卡死的 Base64 图片/语音数据
         if (Array.isArray(msg.content)) {
             const safeContent = msg.content.map(item => {
-                if (item.type === "image_url") return { type: "image_url", image_url: { url: "[图片/语音 Base64 编码已隐藏]" } };
+                if (item.type === "image_url") {
+                    return { type: "image_url", image_url: { url: "[图片/语音 Base64 编码已隐藏，防止终端卡死]" } };
+                }
                 return item;
             });
             return { ...msg, content: safeContent };
         }
+        // 3. 其他所有东西（向量、日记、手机通知、历史记录、用户文字输入）原样返回
         return msg;
     });
-    console.log(`\n================= 🚀 [DEBUG: 发给 LLM 的完整上下文阵列] 🚀 =================`);
+
+    console.log(`\n================= 🚀 [DEBUG: 发给 LLM 的完整上下文] 🚀 =================`);
     console.log(JSON.stringify(debugContext, null, 2));
     console.log(`==============================================================================\n`);
 
@@ -322,7 +342,6 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         
         let thoughts = "";
         let replyContent = rawReply;
-        
         let sceneData = { action: 'continue' };
 
         const thinkMatch = rawReply.match(/<thinking>([\s\S]*?)<\/thinking>/i);
@@ -332,10 +351,8 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
         if (sceneMatches.length > 0) {
             try {
                 let sceneStr = sceneMatches[sceneMatches.length - 1][1];
-                
-                // 🌟 核心修复：暴力提取 { 到 } 之间的内容，无视 LLM 夹带的任何 markdown、反引号或文字废话
                 const jsonMatch = sceneStr.match(/\{[\s\S]*\}/);
-                if (!jsonMatch) throw new Error("未能提取到 {} 格式的 JSON 结构");
+                if (!jsonMatch) throw new Error("未能提取到包含 {} 的 JSON 结构");
                 
                 sceneData = JSON.parse(jsonMatch[0]);
                 
@@ -356,23 +373,34 @@ async function callAI(userId, textContent, mediaPaths = [], proactivePrompt = nu
             replyContent = rawReply.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
         }
 
-        let cleanReply = replyContent;
-        cleanReply = cleanReply.replace(/<pic[^>]*>([\s\S]*?)<\/pic>/gi, "[发送了一张照片/多媒体]");
-        cleanReply = cleanReply.replace(/<pic prompt>([\s\S]*?)<\/pic prompt>/gi, "[发送了一张照片/多媒体]");
-        cleanReply = cleanReply.replace(/<voice>([\s\S]*?)<\/voice>/gi, "$1");
-        cleanReply = cleanReply.replace(/\[物理:开灯\]|\[物理:关灯\]|<开灯>|<关灯>/g, "");
-        cleanReply = cleanReply.replace(/<scene_eval>[\s\S]*?<\/scene_eval>/gi, ""); 
-        cleanReply = cleanReply.trim();
+        // 🌟🌟 核心修复 1：终极双轨分流！🌟🌟
+        
+        // 记忆轨：剥离所有的媒体标签，换成纯文字存进 jsonl，保证记忆不崩
+        let historyReply = replyContent
+            .replace(/<pic[^>]*>[\s\S]*?<\/pic>/gi, "[发送了一张图片]")
+            .replace(/<pic[^>]*\/?>/gi, "[发送了一张图片]")
+            .replace(/<voice[^>]*>([\s\S]*?)<\/voice>/gi, "[发送了一段语音: $1]") // 保留语音的文字内容作为回忆
+            .replace(/<voice[^>]*\/?>/gi, "[发送了一段语音]")
+            .replace(/\[物理:开灯\]|\[物理:关灯\]|<开灯>|<关灯>/g, "")
+            .replace(/<scene_eval>[\s\S]*?<\/scene_eval>/gi, "")
+            .trim();
+
+        // 发送轨：保留 <pic> 和 <voice>，去掉 scene_eval，交给底层 send.ts 处理
+        let sendReply = replyContent
+            .replace(/<scene_eval>[\s\S]*?<\/scene_eval>/gi, "")
+            .trim();
 
         if (thoughts) console.log(`\n💭 [内心独白]: ${thoughts}`);
-        console.log(`📝 [准备发送]: ${replyContent.slice(0, 80)}...`);
+        console.log(`📝 [发往底层执行网关]: ${sendReply.replace(/\n/g, ' ').slice(0, 100)}...`);
 
         let logUserText = textContent;
         if (!logUserText && proactivePrompt) logUserText = "[系统触发]";
         
-        saveInteraction(logUserText, thoughts, cleanReply, sceneData);
+        // 把处理完格式记忆向量化
+        saveInteraction(logUserText, thoughts, historyReply, sceneData);
 
-        return cleanReply; 
+        // 把完整带有 <pic> 和 <voice> 的版本返回给 send.ts，激活生图
+        return sendReply; 
     } catch (err) {
         if (err.name === 'TimeoutError' || err.name === 'AbortError') {
             console.error(`\n❌ AI 请求超时 (超过 5 分钟未返回数据)`);
@@ -400,12 +428,13 @@ async function processBuffer(userId) {
     const cToken = contextTokens[userId];
     await setTypingStatus(userId, cToken, true);
     
+    // aiReply 现在是带有完整生图/语音标签的原味字符串
     const aiReply = await callAI(userId, combinedText, collectedMedia);
     
     await setTypingStatus(userId, cToken, false);
 
     if (aiReply) {
-        console.log(`📤 交由 send.js 执行发送...`);
+        console.log(`📤 交由 send.ts 官方网关执行发送...`);
         await sendMessageWeixin({
             to: userId,
             text: aiReply,
@@ -426,7 +455,7 @@ async function startBot() {
         try { syncCursor = JSON.parse(fs.readFileSync(SYNC_CONF_PATH, 'utf-8')).get_updates_buf || ""; } catch (e) {}
     }
 
-    console.log("🚀 独立网关 (沉浸剧本记忆+RAG向量版) 已启动...");
+    console.log("🚀 独立网关 (沉浸剧本记忆+RAG向量+多模态) 已启动...");
 
     while (true) {
         try {
@@ -531,7 +560,7 @@ async function startBot() {
                                             }
                                         }
                                         userMediaBuffers[userId].push(finalPath);
-                                        userMessageBuffers[userId].push(`[User发送了一条语音消息，请听音频附件感知语气。]`);
+                                        userMessageBuffers[userId].push(`(User发来一段语音)`);
                                         hasContent = true;
                                     }
                                 } catch (err) {}
@@ -542,7 +571,7 @@ async function startBot() {
                                     const downloadedPath = mediaOpts.decryptedPicPath || mediaOpts.filePath || mediaOpts.path;
                                     if (downloadedPath) {
                                         userMediaBuffers[userId].push(downloadedPath);
-                                        userMessageBuffers[userId].push(`[发送了一张图片/多媒体，请查看视觉附件]`);
+                                        userMessageBuffers[userId].push(`(User发来一张照片/多媒体)`);
                                         hasContent = true;
                                     }
                                 } catch(e) {}
