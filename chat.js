@@ -100,7 +100,7 @@ export function getCurrentSceneInfo() {
     return { currentSceneTitle, currentShifts, currentSceneId };
 }
 
-// 🌟 读取动态配置的滑动窗口
+// 🌟 读取动态配置的滑动窗口，并增加【场景边界可视化】与【1小时强制断层切片】
 export function getChatContext(limit = 200) {
     const runtimeCfg = 获取运行策略() || {};
     const maxScenes = runtimeCfg.chat_context?.recent_scenes ?? 3;
@@ -110,7 +110,6 @@ export function getChatContext(limit = 200) {
 
     if (fs.existsSync(fullLogPath)) {
         const lines = fs.readFileSync(fullLogPath, 'utf-8').split('\n').filter(Boolean);
-        let currentSceneTitle = "无（等待定义）";
         let startIndex = -1;
         let sceneCount = 0;
 
@@ -119,12 +118,9 @@ export function getChatContext(limit = 200) {
                 const item = JSON.parse(lines[i]);
                 
                 if (item.scene_title) {
-                    if (sceneCount === 0) currentSceneTitle = item.scene_title;
-                    
                     sceneCount++;
                     startIndex = i; 
                     
-                    // 当收集到了用户设定的窗口量（当前 + 前 N-1 个）时，完美截断
                     if (sceneCount >= maxScenes) {
                         break; 
                     }
@@ -135,25 +131,49 @@ export function getChatContext(limit = 200) {
         if (startIndex === -1) startIndex = Math.max(1, lines.length - limit);
 
         let contextLogs = [];
+        let lastMessageTimeMs = null; // 记录最后一条有效消息的时间
+
         for (let i = startIndex; i < lines.length; i++) {
             try {
                 const item = JSON.parse(lines[i]);
                 if (item.is_system) continue;
                 const d = new Date(item.send_date);
                 const timeStr = d.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
+                
+                // 🌟 核心优化 1：给大模型画出明确的场景边界与起点时间
+                if (item.scene_title) {
+                    contextLogs.push(`\n=== 🎬 [场景：${item.scene_title}] (起点时间: ${timeStr}) ===`);
+                }
+
                 contextLogs.push(`[${timeStr}] ${item.name}: ${item.mes}`);
+                
+                if (!isNaN(d.getTime())) {
+                    lastMessageTimeMs = d.getTime();
+                }
             } catch (_error) {}
         }
 
         if (contextLogs.length > 0) {
-            const scriptText = `【当前进行中的对话场景】：${currentSceneTitle}\n【实时情景上下文（含最近 ${maxScenes} 个场景连贯溯源）】：\n` + contextLogs.join('\n');
+            let scriptText = `【实时情景上下文（包含最近 ${maxScenes} 个场景的连贯溯源，请注意观察时间流逝边界）】：\n` + contextLogs.join('\n');
+            
+            // 🌟 核心优化 2：数学级断层检测（超过 1 小时强制切分）
+            if (lastMessageTimeMs) {
+                const nowMs = Date.now();
+                const gapMs = nowMs - lastMessageTimeMs;
+                
+                // 如果距离上一次说话超过了 1 小时 (3600000 毫秒)
+                if (gapMs > 60 * 60 * 1000) {
+                    const gapHours = (gapMs / (60 * 60 * 1000)).toFixed(1);
+                    scriptText += `\n\n⚠️ [系统强制指令]：注意！当前时间距离上述最后一条历史对话已过去 ${gapHours} 小时！时间发生了显著流逝。请在本次回复的 <scene_eval> 中强制使用 "action": "new" 开启新场景，并根据当前时间和话题概括新的 scene_title！`;
+                }
+            }
+
             contextArray.push({ role: 'system', content: scriptText });
         }
     }
     return contextArray;
 }
 
-// 🌟 降级兜底方案：如果向量模型挂了，用来读取最后 X 篇日记
 export function getLatestDiaries(limit = 3) {
     const { summaryLogPath } = 确保存在活跃会话文件();
     if (!fs.existsSync(summaryLogPath) || limit <= 0) return [];
@@ -165,7 +185,7 @@ export function getLatestDiaries(limit = 3) {
         try {
             const item = JSON.parse(lines[i]);
             if (item.mes) {
-                diaries.unshift(item.mes); // 倒序插入，保证最旧的在前面
+                diaries.unshift(item.mes); 
                 if (diaries.length >= limit) break;
             }
         } catch(e) {}
