@@ -1,3 +1,5 @@
+![banner](https://github.com/user-attachments/assets/f199318c-2d14-4ed6-9ef8-646e17f3040d)
+
 # 🚀 自推微信机器人
 
 [English](./README.md) | **简体中文**
