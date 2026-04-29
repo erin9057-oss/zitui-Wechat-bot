@@ -1,3 +1,5 @@
+![banner](https://github.com/user-attachments/assets/f199318c-2d14-4ed6-9ef8-646e17f3040d)
+
 # 🚀 Zitui Wechat Bot
 
 **English** | [简体中文](./README.zh_CN.md)
