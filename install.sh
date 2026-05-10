@@ -5,12 +5,122 @@ set -e
 # 自推 Wechat Bot 一键安装与迁移向导
 # ===================================================
 
-REPO_URL="https://github.com/erin9057-oss/zitui-Wechat-bot.git"
+REPO_URL="${ZWB_REPO_URL:-https://github.com/erin9057-oss/zitui-Wechat-bot.git}"
 BASE_DIR="$HOME/WechatAI"
 APP_DIR="$BASE_DIR/openclaw-weixin"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_DIR="$BASE_DIR/openclaw-weixin_backup_$TIMESTAMP"
 MIGRATION_DIR="$BASE_DIR/.zitui_migration_$TIMESTAMP"
+
+检测运行环境() {
+    IS_TERMUX=0
+    IS_TERMUX_ROOT=0
+
+    if [ -n "${PREFIX:-}" ] && echo "$PREFIX" | grep -q "^/data/data/com.termux/files/usr"; then
+        IS_TERMUX=1
+    fi
+
+    if [ "$IS_TERMUX" = "1" ] && [ "$(id -u)" = "0" ]; then
+        IS_TERMUX_ROOT=1
+    fi
+}
+
+提示退出TermuxRoot() {
+    echo "❌ 检测到你正在 Termux 的 root 状态下运行安装程序。"
+    echo ""
+    echo "Termux root 的 ~ 会变成 /root，会导致插件安装到错误目录。"
+    echo "请复制执行以下命令退出 root，并回到 Termux 普通用户 home："
+    echo ""
+    echo "    exit"
+    echo "    cd ~"
+    echo ""
+    echo "然后重新运行安装命令。"
+    echo ""
+    echo "当前用户: $(whoami)"
+    echo "当前 HOME: ${HOME:-未设置}"
+    echo "当前 PREFIX: ${PREFIX:-未设置}"
+    echo "当前目录: $(pwd)"
+    echo ""
+    echo "正确 Termux 安装目录应为："
+    echo "    /data/data/com.termux/files/home/WechatAI/openclaw-weixin"
+    exit 1
+}
+
+安装系统依赖() {
+    echo -e "\n📦 [1/6] 检查系统依赖..."
+
+    if [ "$IS_TERMUX" = "1" ]; then
+        echo "📱 检测到 Termux 普通用户环境，使用 pkg 安装依赖。"
+
+        MISSING_DEPS=""
+        command -v git >/dev/null 2>&1 || MISSING_DEPS+=" git"
+        command -v node >/dev/null 2>&1 || MISSING_DEPS+=" nodejs-lts"
+        command -v python >/dev/null 2>&1 || MISSING_DEPS+=" python"
+        command -v ffmpeg >/dev/null 2>&1 || MISSING_DEPS+=" ffmpeg"
+
+        if [ -n "$MISSING_DEPS" ]; then
+            pkg update -y
+            pkg install -y $MISSING_DEPS
+        else
+            echo "✅ 系统依赖已满足，跳过 pkg 安装。"
+        fi
+    else
+        echo "🐧 检测到 VPS / Ubuntu / Debian / proot 环境，使用 apt 安装依赖。"
+
+        if command -v apt-get >/dev/null 2>&1; then
+            APT_CMD="apt-get"
+        elif command -v apt >/dev/null 2>&1; then
+            APT_CMD="apt"
+        else
+            echo "❌ 当前不是 Termux，也没有检测到 apt/apt-get。"
+            echo "请手动安装：git、curl、ca-certificates、nodejs 22、npm、python3、python3-pip、ffmpeg。"
+            exit 1
+        fi
+
+        if [ "$(id -u)" = "0" ]; then
+            SUDO=""
+        else
+            if ! command -v sudo >/dev/null 2>&1; then
+                echo "❌ 当前不是 root，且系统没有 sudo。"
+                echo "请先安装 sudo，或切换到 root 后重新运行。"
+                exit 1
+            fi
+            SUDO="sudo"
+        fi
+
+        $SUDO $APT_CMD update
+        $SUDO $APT_CMD install -y git curl ca-certificates gnupg python3 python3-pip ffmpeg
+
+        NODE_MAJOR=0
+        if command -v node >/dev/null 2>&1; then
+            NODE_MAJOR="$(node -p "Number(process.versions.node.split('.')[0])" 2>/dev/null || echo 0)"
+        fi
+
+        if [ "$NODE_MAJOR" -lt 22 ]; then
+            echo "⚙️ 检测到 Node.js 版本不足，正在安装 Node.js 22..."
+            if [ "$(id -u)" = "0" ]; then
+                curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+            else
+                curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+            fi
+            $SUDO $APT_CMD install -y nodejs
+        else
+            echo "✅ Node.js 版本满足要求：$(node -v)"
+        fi
+    fi
+
+    echo -e "\n🐍 检查 Python 依赖..."
+    if ! python3 -c "import pilk" >/dev/null 2>&1 && ! python -c "import pilk" >/dev/null 2>&1; then
+        echo "正在安装鹅语音 Python 依赖 (pilk)..."
+        if command -v pip3 >/dev/null 2>&1; then
+            pip3 install pilk || python3 -m pip install pilk
+        else
+            pip install pilk
+        fi
+    else
+        echo "✅ Python 依赖 (pilk) 已安装，跳过。"
+    fi
+}
 
 打印标题() {
     echo "==================================================="
@@ -171,30 +281,11 @@ EOF
 打印标题
 
 # 1. 环境检查
-echo -e "\n📦 [1/6] 检查系统依赖..."
-if command -v pkg >/dev/null 2>&1; then
-    MISSING_DEPS=""
-    command -v git >/dev/null 2>&1 || MISSING_DEPS+=" git"
-    command -v node >/dev/null 2>&1 || MISSING_DEPS+=" nodejs-lts"
-    command -v python >/dev/null 2>&1 || MISSING_DEPS+=" python"
-    command -v ffmpeg >/dev/null 2>&1 || MISSING_DEPS+=" ffmpeg"
-    if [ -n "$MISSING_DEPS" ]; then
-        pkg update -y && pkg install -y $MISSING_DEPS
-    fi
-else
-    MISSING_DEPS=""
-    command -v git >/dev/null 2>&1 || MISSING_DEPS+=" git"
-    command -v node >/dev/null 2>&1 || MISSING_DEPS+=" nodejs npm"
-    command -v python3 >/dev/null 2>&1 || MISSING_DEPS+=" python3 python3-pip"
-    command -v ffmpeg >/dev/null 2>&1 || MISSING_DEPS+=" ffmpeg"
-    if [ -n "$MISSING_DEPS" ]; then
-        sudo apt update && sudo apt install -y $MISSING_DEPS
-    fi
+检测运行环境
+if [ "$IS_TERMUX_ROOT" = "1" ]; then
+    提示退出TermuxRoot
 fi
-
-if ! python -c "import pilk" >/dev/null 2>&1 && ! python3 -c "import pilk" >/dev/null 2>&1; then
-    pip3 install pilk || pip install pilk
-fi
+安装系统依赖
 
 # 2. 目录构建与迁移
 echo -e "\n📁 [2/6] 构建目录与数据迁移..."
@@ -212,6 +303,19 @@ cd "$APP_DIR"
 
 # 3. 安装与编译
 echo -e "\n⚙️ [4/6] 安装 Node.js 依赖..."
+cd "$APP_DIR" || {
+    echo "❌ 无法进入项目目录：$APP_DIR"
+    exit 1
+}
+
+if [ ! -f "package.json" ]; then
+    echo "❌ 当前目录没有 package.json，拒绝执行 npm install。"
+    echo "当前目录：$(pwd)"
+    echo "APP_DIR=$APP_DIR"
+    ls -la
+    exit 1
+fi
+
 npm install && npm run build
 command -v pm2 >/dev/null 2>&1 || npm install -g pm2
 
@@ -225,6 +329,7 @@ mkdir -p accounts workspace Memory
 BASHRC_FILE="$HOME/.bashrc"
 echo -e "\n🧹 [5/6] 同步开机自启配置..."
 
+touch "$BASHRC_FILE"
 sed -i '/wechat-bot/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/voice-engine/d' "$BASHRC_FILE" 2>/dev/null || true
 sed -i '/image-engine/d' "$BASHRC_FILE" 2>/dev/null || true
@@ -237,6 +342,7 @@ sed -i '/# WECHAT_BOT_START_BEGIN/,/# WECHAT_BOT_START_END/d' "$BASHRC_FILE" 2>/
 
 cat <<EOF >> "$BASHRC_FILE"
 # WECHAT_BOT_START_BEGIN
+export ZWB_BASE_DIR="$APP_DIR"
 echo "🤖 正在检查并唤醒TA..."
 start_engine() {
     local name=\$1
@@ -245,9 +351,9 @@ start_engine() {
     if ! pm2 ls | grep -q "\$name"; then
         echo "  正在拉起 \$name..."
         if [ -n "\$interpreter" ]; then
-            pm2 start "\$path" --name "\$name" --interpreter "\$interpreter" > /dev/null 2>&1
+            ZWB_BASE_DIR="$APP_DIR" pm2 start "\$path" --name "\$name" --interpreter "\$interpreter" > /dev/null 2>&1
         else
-            pm2 start "\$path" --name "\$name" > /dev/null 2>&1
+            ZWB_BASE_DIR="$APP_DIR" pm2 start "\$path" --name "\$name" > /dev/null 2>&1
         fi
     fi
 }
@@ -275,11 +381,11 @@ else
 fi
 
 echo -e "\n✅ 正在通过 PM2 启动并注册后台引擎..."
-pm2 start "$APP_DIR/bot.js" --name "wechat-bot" || pm2 restart "wechat-bot"
-pm2 start "$APP_DIR/voice-server.js" --name "voice-engine" || pm2 restart "voice-engine"
-pm2 start "$APP_DIR/image-server.js" --name "image-engine" || pm2 restart "image-engine"
-pm2 start "$APP_DIR/sensor.js" --name "sensor-engine" || pm2 restart "sensor-engine"
-pm2 start "$APP_DIR/summary.js" --name "memory-engine" || pm2 restart "memory-engine"
+ZWB_BASE_DIR="$APP_DIR" pm2 start "$APP_DIR/bot.js" --name "wechat-bot" || ZWB_BASE_DIR="$APP_DIR" pm2 restart "wechat-bot" --update-env
+ZWB_BASE_DIR="$APP_DIR" pm2 start "$APP_DIR/voice-server.js" --name "voice-engine" || ZWB_BASE_DIR="$APP_DIR" pm2 restart "voice-engine" --update-env
+ZWB_BASE_DIR="$APP_DIR" pm2 start "$APP_DIR/image-server.js" --name "image-engine" || ZWB_BASE_DIR="$APP_DIR" pm2 restart "image-engine" --update-env
+ZWB_BASE_DIR="$APP_DIR" pm2 start "$APP_DIR/sensor.js" --name "sensor-engine" || ZWB_BASE_DIR="$APP_DIR" pm2 restart "sensor-engine" --update-env
+ZWB_BASE_DIR="$APP_DIR" pm2 start "$APP_DIR/summary.js" --name "memory-engine" || ZWB_BASE_DIR="$APP_DIR" pm2 restart "memory-engine" --update-env
 pm2 save
 
 echo "==================================================="
