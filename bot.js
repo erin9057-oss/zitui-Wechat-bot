@@ -8,9 +8,18 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { fileURLToPath, pathToFileURL } from 'url';
 
-import { sendMessageWeixin } from '/data/data/com.termux/files/home/WechatAI/openclaw-weixin/dist/src/messaging/send.js';
-import { downloadMediaFromItem } from '/data/data/com.termux/files/home/WechatAI/openclaw-weixin/dist/src/media/media-download.js';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const { sendMessageWeixin } = await import(
+    pathToFileURL(path.join(__dirname, 'dist/src/messaging/send.js')).href
+);
+
+const { downloadMediaFromItem } = await import(
+    pathToFileURL(path.join(__dirname, 'dist/src/media/media-download.js')).href
+);
 
 import { getChatContext, getLatestDiaries, saveInteraction, getCurrentSceneInfo } from './chat.js';
 import { db, getEmbedding } from './vector_store.js';

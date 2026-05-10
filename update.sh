@@ -1,4 +1,33 @@
 #!/bin/bash
+检测运行环境() {
+    IS_TERMUX=0
+    IS_TERMUX_ROOT=0
+
+    if [ -n "${PREFIX:-}" ] && echo "$PREFIX" | grep -q "^/data/data/com.termux/files/usr"; then
+        IS_TERMUX=1
+    fi
+
+    if [ "$IS_TERMUX" = "1" ] && [ "$(id -u)" = "0" ]; then
+        IS_TERMUX_ROOT=1
+    fi
+}
+
+提示退出TermuxRoot() {
+    echo "❌ 检测到你正在 Termux 的 root 状态下运行更新程序。"
+    echo ""
+    echo "请复制执行以下命令退出 root，并回到 Termux 普通用户 home："
+    echo ""
+    echo "    exit"
+    echo "    cd ~"
+    echo ""
+    echo "然后重新运行更新命令。"
+    exit 1
+}
+
+检测运行环境
+if [ "$IS_TERMUX_ROOT" = "1" ]; then
+    提示退出TermuxRoot
+fi
 echo "==================================================="
 echo "🚀 正在执行 自推 Wechat Bot 更新程序..."
 echo "==================================================="
@@ -58,6 +87,7 @@ sed -i '/# WECHAT_BOT_START_BEGIN/,/# WECHAT_BOT_START_END/d' "$BASHRC_FILE" 2>/
 
 cat <<EOF >> "$BASHRC_FILE"
 # WECHAT_BOT_START_BEGIN
+export ZWB_BASE_DIR="$APP_DIR"
 echo "🤖 正在检查并唤醒TA..."
 start_engine() {
     local name=\$1
@@ -87,7 +117,8 @@ EOF
 
 # 6. 重启服务
 echo -e "\n🔄 [6/6] 重启后台引擎..."
-pm2 restart all || true
+export ZWB_BASE_DIR="$(pwd)"
+pm2 restart all --update-env || true
 pm2 save
 
 echo "==================================================="
